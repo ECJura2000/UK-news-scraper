@@ -1,0 +1,49 @@
+使用方式
+========
+
+macOS：
+1. 開啟「終端機」。
+2. 進入本資料夾。
+3. 執行：
+   ./UKNewsScraper
+
+Windows：
+原始無密碼版：
+1. 將 UKNewsScraper.exe 和 run_windows.bat 放在同一個資料夾。
+2. 從檔案總管雙擊 run_windows.bat。
+
+防盜版版：
+1. 將 UKNewsScraper_protected.exe 和 run_windows_protected.bat 放在同一個資料夾。
+2. 從檔案總管雙擊 run_windows_protected.bat。
+3. 第一次執行後 30 天內免密碼，超過 30 天後再執行會要求輸入密碼。
+
+可輸入的搜尋期間範例
+====================
+
+預設 14 天：
+  UKNewsScraper
+
+回推 30 天：
+  UKNewsScraper 30
+
+從 2016-05-01 抓到現在：
+  UKNewsScraper 20160501
+
+只抓 2016-05-01 到 2016-05-15：
+  UKNewsScraper 20160501～20160515
+
+輸出 Excel
+==========
+
+預設會輸出到桌面的「UK新聞抓取\新聞放置區」資料夾。
+檔名格式：
+  英國相關機關爬蟲新聞（起始日-結束日）.xlsx
+
+注意事項
+========
+
+1. 免安裝 Python 的可執行檔需要分別在 macOS 和 Windows 打包。
+2. macOS 打包產物是 UKNewsScraper。
+3. Windows 打包產物是 UKNewsScraper.exe。
+4. 若要在 Windows 產生 exe，請在 Windows 電腦執行 build_windows.bat。
+5. 防盜版版密碼請向程式提供者確認。

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.pytest_cache/
+.venv/
+.build-venv/
+build/
+dist/
+release/
+output/
+新聞放置區/
+*.xlsx
+*.run.json
+.uknews_first_run

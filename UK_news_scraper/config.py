@@ -11,6 +11,18 @@ DEFAULT_MAX_WORKERS = 6
 DEFAULT_RETRY_TOTAL = 2
 DEFAULT_OUTPUT_DIR = Path.home() / "Desktop" / "UK新聞抓取" / "新聞放置區"
 DEFAULT_TIMEZONE = "Asia/Taipei"
+SOURCE_HEALTH_MIN_ITEMS = {
+    "DSIT": 1,
+    "Ofcom": 1,
+    "Cabinet Office": 1,
+    "DBT": 1,
+}
+SOURCE_HEALTH_MAX_AGE_DAYS = {
+    "DSIT": 14,
+    "Ofcom": 14,
+    "Cabinet Office": 14,
+    "DBT": 14,
+}
 USER_AGENT = (
     "Mozilla/5.0 (compatible; UK-news-observation-scraper/1.0; "
     "+https://www.gov.uk/)"

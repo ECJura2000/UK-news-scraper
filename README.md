@@ -18,6 +18,8 @@ python3 -m UK_news_scraper
 python3 -m pip install -r requirement.txt
 ```
 
+正式建置與 CI 使用固定版本的 `requirement-lock.txt`，更新依賴後應重新驗證並同步該檔案。
+
 ## 打包成免安裝 Python 的執行檔
 
 macOS：
@@ -107,8 +109,18 @@ NPSA 官網目前有 Cloudflare challenge，排程會直接使用 Google News RS
 ## 測試
 
 ```bash
-python3 -m pip install -r requirement-dev.txt
+python3 -m pip install -r requirement-lock.txt -r requirement-dev.txt
 python3 -m pytest -q
 ```
 
 測試涵蓋日期區間穩定性、共用去重規則、來源狀態、執行摘要、HTTP session 重用、翻譯快取與必要 Excel 工作表。
+
+`.run.json` 也會記錄每個來源的 critical 狀態、筆數、耗時、最新資料日期與健康警告。必要來源失敗或低於健康門檻時，整體狀態會標記為 `degraded`。
+
+寄信 automation 應使用 delivery claim CLI，確保併發執行時只有一個寄信者：
+
+```bash
+python3 -m UK_news_scraper.delivery_registry claim --summary /absolute/report.run.json
+python3 -m UK_news_scraper.delivery_registry complete --delivery-id <delivery_id> --message-id <gmail_message_id>
+python3 -m UK_news_scraper.delivery_registry release --delivery-id <delivery_id>
+```

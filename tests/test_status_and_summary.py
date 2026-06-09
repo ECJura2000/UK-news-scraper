@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime, timezone
 
 from UK_news_scraper.main import _run_status
-from UK_news_scraper.run_summary import RunSummary, make_run_id, write_run_summary
+from UK_news_scraper.run_summary import RunSummary, make_delivery_id, make_run_id, write_run_summary
 from UK_news_scraper.scrapers.ministry.registry import AgencyFetchStatus, FetchAllResult
 from UK_news_scraper.scrapers.parliament.research_briefings import ParliamentFetchResult
 
@@ -29,8 +29,10 @@ def test_run_summary_is_machine_readable(tmp_path):
     start = datetime(2026, 5, 24, 16, tzinfo=timezone.utc)
     end = datetime(2026, 6, 8, 16, tzinfo=timezone.utc)
     output = tmp_path / "report.xlsx"
+    fingerprint = "a" * 64
+    run_id = make_run_id(date(2026, 5, 25), date(2026, 6, 8))
     summary = RunSummary(
-        run_id=make_run_id(date(2026, 5, 25), date(2026, 6, 8)),
+        run_id=run_id,
         generated_at=end.isoformat(),
         period_start="2026-05-25",
         period_end="2026-06-08",
@@ -41,6 +43,9 @@ def test_run_summary_is_machine_readable(tmp_path):
         filtered_parliament_count=1,
         status="complete",
         warnings=(),
+        data_fingerprint=fingerprint,
+        delivery_id=make_delivery_id(run_id, "complete", fingerprint),
+        source_health=(),
     )
 
     path = write_run_summary(summary, output)

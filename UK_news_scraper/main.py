@@ -16,7 +16,15 @@ from .config import (
 )
 from .dedupe import dedupe_news_items
 from .excel_exporter import export_news
-from .run_summary import RunSummary, make_run_id, write_run_summary
+from .logging_utils import log_event
+from .run_summary import (
+    RunSummary,
+    make_data_fingerprint,
+    make_delivery_id,
+    make_run_id,
+    write_run_summary,
+)
+from .runtime_lock import LockUnavailable, exclusive_lock
 from .scrapers.ministry.registry import (
     apply_parliament_topic_filter,
     apply_topic_filter,
@@ -73,11 +81,22 @@ def main(require_trial_password: bool = False) -> None:
     if require_trial_password:
         _require_password_after_trial(now)
     since, until = _resolve_date_range(args, now)
+    period_start = _local_date(since)
+    period_end = _local_date(until - timedelta(microseconds=1))
+    run_id = make_run_id(period_start, period_end)
 
     output = args.output
     if not output:
         output = Path(DEFAULT_OUTPUT_DIR) / f"英國相關機關爬蟲新聞（{_date_range_label(since, until, now)}）.xlsx"
+    lock_path = Path(output).expanduser().resolve().parent / f".{run_id}.lock"
+    try:
+        with exclusive_lock(lock_path):
+            _execute_run(args, now, since, until, period_start, period_end, run_id, output)
+    except LockUnavailable as exc:
+        raise SystemExit(f"[error] {exc}") from exc
 
+
+def _execute_run(args, now, since, until, period_start, period_end, run_id, output) -> None:
     fetch_result = fetch_all_with_status(since, max_workers=args.workers)
     all_items = dedupe_news_items(_filter_until(fetch_result.items, until))
     filtered_items = apply_topic_filter(all_items)
@@ -92,9 +111,9 @@ def main(require_trial_password: bool = False) -> None:
         filtered_parliament_items=filtered_parliament_items,
     )
     status, warnings = _run_status(fetch_result, parliament_result)
-    period_start = _local_date(since)
-    period_end = _local_date(until - timedelta(microseconds=1))
-    run_id = make_run_id(period_start, period_end)
+    data_fingerprint = make_data_fingerprint(all_items, parliament_items)
+    delivery_id = make_delivery_id(run_id, status, data_fingerprint)
+    source_health = tuple(fetch_result.source_health + parliament_result.source_health)
     summary_path = write_run_summary(
         RunSummary(
             run_id=run_id,
@@ -108,23 +127,26 @@ def main(require_trial_password: bool = False) -> None:
             filtered_parliament_count=len(filtered_parliament_items),
             status=status,
             warnings=tuple(warnings),
+            data_fingerprint=data_fingerprint,
+            delivery_id=delivery_id,
+            source_health=source_health,
         ),
         path,
     )
 
-    print(f"[done] Run ID：{run_id}")
-    print(f"[done] 全部新聞：{len(all_items)} 筆")
-    print(f"[done] 初步篩選：{len(filtered_items)} 筆")
-    print(f"[done] 國會研究資料：{len(parliament_items)} 筆（{parliament_result.source_mode}）")
-    print(f"[done] 初步篩選研究資料：{len(filtered_parliament_items)} 筆")
-    print(f"[done] 輸出檔案：{path}")
-    print(f"[done] 執行摘要：{summary_path}")
+    log_event("done", "run_id", f"Run ID：{run_id}", run_id=run_id, delivery_id=delivery_id)
+    log_event("done", "all_news_count", f"全部新聞：{len(all_items)} 筆", count=len(all_items))
+    log_event("done", "filtered_news_count", f"初步篩選：{len(filtered_items)} 筆", count=len(filtered_items))
+    log_event("done", "parliament_count", f"國會研究資料：{len(parliament_items)} 筆（{parliament_result.source_mode}）", count=len(parliament_items), source_mode=parliament_result.source_mode)
+    log_event("done", "filtered_parliament_count", f"初步篩選研究資料：{len(filtered_parliament_items)} 筆", count=len(filtered_parliament_items))
+    log_event("done", "output_file", f"輸出檔案：{path}", path=str(path))
+    log_event("done", "run_summary", f"執行摘要：{summary_path}", path=str(summary_path))
     if status == "complete":
-        print("[done] 抓取狀態：全部來源皆抓取成功")
+        log_event("done", "run_status", "抓取狀態：全部必要來源皆符合健康門檻", status=status)
     else:
-        print("[warn] 抓取狀態：部分來源抓取失敗")
+        log_event("warn", "run_status", "抓取狀態：部分來源抓取失敗", status=status)
         for warning in warnings:
-            print(f"[warn] - {warning}")
+            log_event("warn", "source_warning", f"- {warning}", warning=warning)
 
 
 def _resolve_date_range(args: argparse.Namespace, now: datetime) -> tuple[datetime, datetime]:
@@ -257,6 +279,11 @@ def _run_status(fetch_result, parliament_result) -> tuple[str, list[str]]:
         for status in fetch_result.failed_statuses
     ]
     warnings.extend(parliament_result.warnings)
+    warnings.extend(
+        health.warning
+        for health in fetch_result.source_health + parliament_result.source_health
+        if health.success and health.warning and health.warning not in warnings
+    )
     if fetch_result.all_successful and parliament_result.all_successful:
         return "complete", warnings
     return "degraded", warnings

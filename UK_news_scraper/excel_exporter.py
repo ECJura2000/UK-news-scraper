@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 import re
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -80,7 +80,18 @@ def export_news(
     _style_filtered_sheet(ws_filtered)
     _style_parliament_sheet(ws_parliament)
 
-    wb.save(path)
+    temporary_path = path.with_name(f"{path.stem}.tmp{path.suffix}")
+    try:
+        wb.save(temporary_path)
+        verification_workbook = load_workbook(temporary_path, read_only=True, data_only=True)
+        required_sheets = {"全部新聞", "已初步篩選工作表", "國會研究資料"}
+        if not required_sheets.issubset(verification_workbook.sheetnames):
+            raise RuntimeError("Excel 暫存檔缺少必要工作表")
+        verification_workbook.close()
+        temporary_path.replace(path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
     return path
 
 

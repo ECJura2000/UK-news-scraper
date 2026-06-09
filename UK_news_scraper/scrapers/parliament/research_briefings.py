@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import html
 import json
 import os
 import re
+from time import monotonic
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
 from bs4 import BeautifulSoup
 
 from ...http.async_client import get_json, get_text
-from ...models import ParliamentBriefing
+from ...models import ParliamentBriefing, SourceHealth
 from ...rss import parse_feed
 from ..ministry.utils.date import parse_datetime_text, parse_feed_datetime
 from ..ministry.utils.text import clean_text
@@ -64,10 +65,17 @@ class ParliamentFetchResult:
     warnings: list[str] = field(default_factory=list)
     successful_sources: list[str] = field(default_factory=list)
     failed_sources: list[str] = field(default_factory=list)
+    source_health: list[SourceHealth] = field(default_factory=list)
 
     @property
     def all_successful(self) -> bool:
-        return not self.failed_sources
+        if not self.source_health:
+            return not self.failed_sources
+        return all(
+            health.success and not health.warning
+            for health in self.source_health
+            if health.critical
+        )
 
     @property
     def has_usable_data(self) -> bool:
@@ -82,15 +90,20 @@ def fetch_parliament_briefings(
     warnings: list[str] = []
     successful_sources: list[str] = []
     failed_sources: list[str] = []
+    source_health: list[SourceHealth] = []
     if os.environ.get("UK_PARLIAMENT_TRY_API") == "1":
+        started_at = monotonic()
         try:
             items = _fetch_api(since, page_size=page_size, max_pages=max_pages)
             if not items:
                 raise RuntimeError("API 未回傳指定期間內的 research briefings")
             print(f"[info] UK Parliament Research Briefings API：{len(items)} 筆")
             successful_sources.append("Research Briefings API")
+            source_health.append(
+                _source_health("Research Briefings API", False, True, items, monotonic() - started_at, since=since)
+            )
             _extend_with_topic_archives(
-                items, since, warnings, successful_sources, failed_sources
+                items, since, warnings, successful_sources, failed_sources, source_health
             )
             return ParliamentFetchResult(
                 items=_dedupe(items),
@@ -98,30 +111,50 @@ def fetch_parliament_briefings(
                 warnings=warnings,
                 successful_sources=successful_sources,
                 failed_sources=failed_sources,
+                source_health=source_health,
             )
         except Exception as exc:
             warning = f"Research Briefings API 無法使用，改抓官方 RSS：{exc}"
             warnings.append(warning)
             failed_sources.append("Research Briefings API")
+            source_health.append(
+                _source_health("Research Briefings API", False, False, [], monotonic() - started_at, warning, since=since)
+            )
             print(f"[warn] {warning}")
     else:
         print("[info] UK Parliament Research Briefings：使用官方 RSS（API 健康檢查已停用）")
 
     items: list[ParliamentBriefing] = []
     for publisher, feed_url in RSS_SOURCES.items():
+        started_at = monotonic()
         try:
             feed_items = _fetch_rss(publisher, feed_url, since)
         except Exception as exc:
             warning = f"{publisher} RSS 讀取失敗：{exc}"
             warnings.append(warning)
             failed_sources.append(f"{publisher} RSS")
+            source_health.append(
+                _source_health(f"{publisher} RSS", True, False, [], monotonic() - started_at, warning, since=since)
+            )
             print(f"[warn] {warning}")
             continue
         print(f"[info] {publisher} RSS：{len(feed_items)} 筆")
         successful_sources.append(f"{publisher} RSS")
+        source_health.append(
+            _source_health(
+                f"{publisher} RSS",
+                True,
+                True,
+                feed_items,
+                monotonic() - started_at,
+                minimum=1,
+                since=since,
+                maximum_age_days=14,
+            )
+        )
         items.extend(feed_items)
     _extend_with_topic_archives(
-        items, since, warnings, successful_sources, failed_sources
+        items, since, warnings, successful_sources, failed_sources, source_health
     )
     return ParliamentFetchResult(
         items=_dedupe(items),
@@ -129,6 +162,7 @@ def fetch_parliament_briefings(
         warnings=warnings,
         successful_sources=successful_sources,
         failed_sources=failed_sources,
+        source_health=source_health,
     )
 
 
@@ -138,8 +172,10 @@ def _extend_with_topic_archives(
     warnings: list[str],
     successful_sources: list[str],
     failed_sources: list[str],
+    source_health: list[SourceHealth],
 ) -> None:
     for label, archive_url, chamber, publisher in TOPIC_ARCHIVE_SOURCES:
+        started_at = monotonic()
         try:
             topic_items = _fetch_topic_archive(
                 since,
@@ -151,10 +187,16 @@ def _extend_with_topic_archives(
             warning = f"{label} 主題頁讀取失敗：{exc}"
             warnings.append(warning)
             failed_sources.append(f"{label} topic archive")
+            source_health.append(
+                _source_health(f"{label} topic archive", False, False, [], monotonic() - started_at, warning, since=since)
+            )
             print(f"[warn] {warning}")
             continue
         print(f"[info] {label} 主題頁：{len(topic_items)} 筆")
         successful_sources.append(f"{label} topic archive")
+        source_health.append(
+            _source_health(f"{label} topic archive", False, True, topic_items, monotonic() - started_at, since=since)
+        )
         items.extend(topic_items)
 
 
@@ -390,3 +432,38 @@ def _dedupe(items: list[ParliamentBriefing]) -> list[ParliamentBriefing]:
         seen.add(key)
         output.append(item)
     return output
+
+
+def _source_health(
+    source: str,
+    critical: bool,
+    success: bool,
+    items: list[ParliamentBriefing],
+    duration_seconds: float,
+    warning: str = "",
+    minimum: int = 0,
+    since: datetime | None = None,
+    maximum_age_days: int | None = None,
+) -> SourceHealth:
+    if success and len(items) < minimum:
+        warning = f"{source} 筆數異常：取得 {len(items)} 筆，低於健康門檻 {minimum} 筆"
+    newest = max((item.published_at for item in items), default=None)
+    now = datetime.now(timezone.utc)
+    if (
+        not warning
+        and newest
+        and since
+        and maximum_age_days is not None
+        and since >= now - timedelta(days=30)
+        and newest < now - timedelta(days=maximum_age_days)
+    ):
+        warning = f"{source} 最新資料已超過 {maximum_age_days} 天"
+    return SourceHealth(
+        source=source,
+        critical=critical,
+        success=success,
+        item_count=len(items),
+        duration_seconds=round(duration_seconds, 3),
+        newest_published_at=newest.isoformat() if newest else "",
+        warning=warning,
+    )

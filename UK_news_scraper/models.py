@@ -64,3 +64,14 @@ class ParliamentBriefing:
     @property
     def date_text(self) -> str:
         return self.published_at.date().isoformat()
+
+
+@dataclass(frozen=True)
+class SourceHealth:
+    source: str
+    critical: bool
+    success: bool
+    item_count: int
+    duration_seconds: float
+    newest_published_at: str = ""
+    warning: str = ""

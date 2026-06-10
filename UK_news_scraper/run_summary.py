@@ -9,6 +9,9 @@ from pathlib import Path
 from .models import NewsItem, ParliamentBriefing, SourceHealth
 
 
+DATA_FINGERPRINT_VERSION = "v2"
+
+
 @dataclass(frozen=True)
 class RunSummary:
     run_id: str
@@ -46,12 +49,44 @@ def make_data_fingerprint(
     news_items: list[NewsItem],
     parliament_items: list[ParliamentBriefing],
 ) -> str:
-    records = [
-        f"news|{item.agency}|{item.date_text}|{item.title}|{item.link}"
-        for item in news_items
-    ]
+    records = [f"schema|{DATA_FINGERPRINT_VERSION}"]
     records.extend(
-        f"parliament|{item.publisher}|{item.date_text}|{item.identifier}|{item.title}|{item.webpage_url}"
+        "|".join(
+            (
+                "news",
+                item.agency,
+                item.agency_en,
+                item.unit_category or "",
+                item.date_text,
+                item.title,
+                item.summary,
+                item.link,
+                item.source_feed,
+                ",".join(sorted(item.matched_topics)),
+                ",".join(sorted(item.matched_keywords, key=str.casefold)),
+            )
+        )
+        for item in news_items
+    )
+    records.extend(
+        "|".join(
+            (
+                "parliament",
+                item.publisher,
+                item.chamber,
+                item.date_text,
+                item.identifier,
+                item.document_type,
+                item.title,
+                item.summary,
+                item.webpage_url,
+                item.pdf_url,
+                item.fetched_from,
+                ",".join(sorted(item.topics)),
+                ",".join(sorted(item.matched_topics)),
+                ",".join(sorted(item.matched_keywords, key=str.casefold)),
+            )
+        )
         for item in parliament_items
     )
     payload = "\n".join(sorted(records)).encode("utf-8")

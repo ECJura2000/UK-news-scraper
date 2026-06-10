@@ -12,6 +12,9 @@ python3 -m UK_news_scraper
 
 每次執行也會在 Excel 旁產生同名的 `.run.json` 執行摘要，內容包含穩定 `run_id`、邏輯筆數、完整或降級狀態與來源警告。寄信流程應先用 `run_id` 檢查是否已寄送，避免同一期間重複寄信。
 
+翻譯會使用持久快取，未命中內容預設以 4 個有限併發請求翻譯。可用
+`UK_NEWS_TRANSLATION_CONCURRENCY` 調整併發數。
+
 第一次執行前請先安裝套件：
 
 ```bash
@@ -93,6 +96,8 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 ## UK Parliament Research Briefings
 
 國會研究資料預設使用 Commons Library、Lords Library 與 POST 的官方 RSS。
+RSS 會逐頁抓取，直到資料日期早於本次搜尋起始日，避免只讀取每個 feed
+最新 10 筆而漏掉同期間內的其他 research briefings。
 此外會抓取 House of Lords Library 的 `Science & Technology` 主題頁，
 以及 House of Commons Library 的 `Technology`、`Sciences` 主題頁，
 補入 RSS 未收錄的 `In Focus` 與其他相關文章。
@@ -123,4 +128,12 @@ python3 -m pytest -q
 python3 -m UK_news_scraper.delivery_registry claim --summary /absolute/report.run.json
 python3 -m UK_news_scraper.delivery_registry complete --delivery-id <delivery_id> --message-id <gmail_message_id>
 python3 -m UK_news_scraper.delivery_registry release --delivery-id <delivery_id>
+python3 -m UK_news_scraper.delivery_registry status --state claimed
+python3 -m UK_news_scraper.delivery_registry recover --delivery-id <delivery_id> --confirm-release
 ```
+
+`recover` 僅適用於人工確認郵件未送出後釋放卡住的 claim；沒有
+`--confirm-release` 時不會變更 registry。
+
+來源健康門檻依機關發布頻率設定：高頻來源要求近 14 天有資料，低頻來源
+使用 30、45 或 60 天 freshness 門檻，避免把正常的低頻發布誤判為異常。

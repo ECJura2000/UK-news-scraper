@@ -22,6 +22,15 @@ SOURCE_HEALTH_MAX_AGE_DAYS = {
     "Ofcom": 14,
     "Cabinet Office": 14,
     "DBT": 14,
+    "CMA": 30,
+    "NCSC": 30,
+    "UK IPO": 45,
+    "ICO": 45,
+    "Electoral Commission": 45,
+    "AISI": 60,
+    "GDS": 60,
+    "NPSA": 60,
+    "UKRI": 60,
 }
 USER_AGENT = (
     "Mozilla/5.0 (compatible; UK-news-observation-scraper/1.0; "

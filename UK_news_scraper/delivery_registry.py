@@ -77,6 +77,36 @@ def release_delivery(
     return True
 
 
+def delivery_status(
+    delivery_id: str | None = None,
+    state: str | None = None,
+    registry_path: str | Path = DEFAULT_REGISTRY,
+) -> dict:
+    registry = _read_json(Path(registry_path), default={})
+    if delivery_id:
+        return {
+            "delivery_id": delivery_id,
+            "record": registry.get(delivery_id),
+        }
+    records = {
+        key: value
+        for key, value in registry.items()
+        if not state or value.get("state") == state
+    }
+    return {"count": len(records), "records": records}
+
+
+def recover_claim(
+    delivery_id: str,
+    confirmed: bool,
+    registry_path: str | Path = DEFAULT_REGISTRY,
+) -> dict:
+    if not confirmed:
+        raise ValueError("recover 需要明確確認：--confirm-release")
+    released = release_delivery(delivery_id, registry_path)
+    return {"delivery_id": delivery_id, "released": released}
+
+
 def _read_json(path: Path, default=None):
     if not path.exists():
         return default
@@ -104,14 +134,24 @@ def main() -> None:
     complete.add_argument("--message-id", required=True)
     release = subparsers.add_parser("release")
     release.add_argument("--delivery-id", required=True)
+    status = subparsers.add_parser("status")
+    status.add_argument("--delivery-id")
+    status.add_argument("--state", choices=("claimed", "sent"))
+    recover = subparsers.add_parser("recover")
+    recover.add_argument("--delivery-id", required=True)
+    recover.add_argument("--confirm-release", action="store_true")
     args = parser.parse_args()
 
     if args.command == "claim":
         result = claim_delivery(args.summary, args.registry)
     elif args.command == "complete":
         result = complete_delivery(args.delivery_id, args.message_id, args.registry)
-    else:
+    elif args.command == "release":
         result = {"released": release_delivery(args.delivery_id, args.registry)}
+    elif args.command == "status":
+        result = delivery_status(args.delivery_id, args.state, args.registry)
+    else:
+        result = recover_claim(args.delivery_id, args.confirm_release, args.registry)
     print(json.dumps(result, ensure_ascii=False))
 
 

@@ -6,7 +6,13 @@ from bs4 import BeautifulSoup
 
 from UK_news_scraper.main import _run_status
 from UK_news_scraper.models import Agency
-from UK_news_scraper.scrapers.ministry.registry import AgencyFeedScraper, AgencyFetchStatus, FetchAllResult
+from UK_news_scraper.scrapers.ministry.registry import (
+    AgencyFeedScraper,
+    AgencyFetchStatus,
+    FetchAllResult,
+    _health_warning,
+    _is_electoral_commission_google_news_title,
+)
 from UK_news_scraper.scrapers.parliament import research_briefings
 from UK_news_scraper.scrapers.parliament.research_briefings import ParliamentFetchResult
 
@@ -41,6 +47,32 @@ def test_commons_rss_fixture_parser(monkeypatch):
 
     assert len(items) == 1
     assert items[0].identifier == "CBP-1234"
+
+
+def test_commons_rss_paginates_until_an_old_page(monkeypatch):
+    recent = feedparser.parse((FIXTURES / "commons_feed.xml").read_bytes())
+    old_xml = (FIXTURES / "commons_feed.xml").read_text().replace(
+        "Mon, 08 Jun 2026 09:00:00 GMT",
+        "Mon, 01 Jun 2026 09:00:00 GMT",
+    )
+    old = feedparser.parse(old_xml)
+    calls: list[str] = []
+
+    def parse_page(url):
+        calls.append(url)
+        feed = recent if len(calls) == 1 else old
+        feed.entries = list(feed.entries) * 10
+        return feed
+
+    monkeypatch.setattr(research_briefings, "parse_feed", parse_page)
+    items = research_briefings._fetch_rss(
+        "House of Commons Library",
+        "https://example.com/feed/",
+        datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+
+    assert calls == ["https://example.com/feed/", "https://example.com/feed/?paged=2"]
+    assert len(items) == 1
 
 
 def test_health_warning_degrades_run():
@@ -85,3 +117,18 @@ def test_stale_critical_parliament_source_has_warning():
     )
 
     assert "最新資料已超過" in health.warning
+
+
+def test_electoral_commission_google_news_filter_removes_database_noise():
+    assert _is_electoral_commission_google_news_title(
+        "Political parties accept £24.7m in donations in Q1 2026"
+    )
+    assert not _is_electoral_commission_google_news_title("Search criteria")
+    assert not _is_electoral_commission_google_news_title("Donation summary")
+
+
+def test_low_frequency_source_does_not_warn_for_zero_items():
+    since = datetime.now(timezone.utc) - timedelta(days=14)
+
+    assert _health_warning("AISI", [], since) == ""
+    assert "低於健康門檻" in _health_warning("DSIT", [], since)

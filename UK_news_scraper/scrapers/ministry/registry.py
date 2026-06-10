@@ -27,6 +27,15 @@ from .utils.text import clean_text, keyword_in_text, normalize_for_match
 
 
 RETRY_DELAY_SECONDS = 2
+ELECTORAL_COMMISSION_GOOGLE_NEWS_EXCLUDED_TITLES = {
+    "search criteria",
+    "home page | electoral commission",
+    "donation summary",
+    "loan summary",
+    "qualifications",
+    "living abroad",
+    "resources for media",
+}
 
 
 @dataclass
@@ -112,7 +121,11 @@ class AgencyFeedScraper(Scraper):
             successful_sources += html_successful
             items.extend(html_items)
 
-        if attempted_sources and not successful_sources and self.agency.short_name in ("Ofcom", "NPSA"):
+        if attempted_sources and not successful_sources and self.agency.short_name in (
+            "Ofcom",
+            "NPSA",
+            "Electoral Commission",
+        ):
             attempted_sources += 1
             try:
                 fallback_items = self._fetch_google_news_fallback(since)
@@ -324,6 +337,7 @@ class AgencyFeedScraper(Scraper):
         query_text = {
             "Ofcom": "site:ofcom.org.uk Ofcom",
             "NPSA": "site:npsa.gov.uk NPSA",
+            "Electoral Commission": "site:electoralcommission.org.uk Electoral Commission",
         }[self.agency.short_name]
         query = quote(query_text)
         feed_url = f"https://news.google.com/rss/search?q={query}&hl=en-GB&gl=GB&ceid=GB:en"
@@ -346,6 +360,15 @@ class AgencyFeedScraper(Scraper):
                     title,
                     flags=re.IGNORECASE,
                 ).strip()
+            elif self.agency.short_name == "Electoral Commission":
+                title = re.sub(
+                    r"\s+-\s+Electoral Commission$",
+                    "",
+                    title,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if not _is_electoral_commission_google_news_title(title):
+                    continue
             if len(title) < 12:
                 continue
             items.append(
@@ -359,6 +382,20 @@ class AgencyFeedScraper(Scraper):
             )
         print(f"[info] {self.agency.short_name} 官方站受 Cloudflare 阻擋，改用 Google News RSS 備援：{len(items)} 筆")
         return dedupe_items(items)
+
+
+def _is_electoral_commission_google_news_title(title: str) -> bool:
+    normalized = clean_text(title).casefold()
+    if not normalized or normalized in ELECTORAL_COMMISSION_GOOGLE_NEWS_EXCLUDED_TITLES:
+        return False
+    return not any(
+        normalized.startswith(prefix)
+        for prefix in (
+            "search criteria",
+            "donation summary",
+            "loan summary",
+        )
+    )
 
 
 def build_scrapers(agencies: tuple[Agency, ...] = AGENCIES) -> list[AgencyFeedScraper]:

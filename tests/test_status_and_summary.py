@@ -2,7 +2,14 @@ import json
 from datetime import date, datetime, timezone
 
 from UK_news_scraper.main import _run_status
-from UK_news_scraper.run_summary import RunSummary, make_delivery_id, make_run_id, write_run_summary
+from UK_news_scraper.models import NewsItem
+from UK_news_scraper.run_summary import (
+    RunSummary,
+    make_data_fingerprint,
+    make_delivery_id,
+    make_run_id,
+    write_run_summary,
+)
 from UK_news_scraper.scrapers.ministry.registry import AgencyFetchStatus, FetchAllResult
 from UK_news_scraper.scrapers.parliament.research_briefings import ParliamentFetchResult
 
@@ -53,3 +60,26 @@ def test_run_summary_is_machine_readable(tmp_path):
 
     assert payload["run_id"] == "uk-news-2026-05-25_2026-06-08"
     assert payload["status"] == "complete"
+
+
+def test_data_fingerprint_changes_when_visible_summary_changes():
+    original = NewsItem(
+        agency="Agency",
+        agency_en="Agency",
+        unit_category="A",
+        title="Title",
+        link="https://example.com/item",
+        published_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        summary="Original summary",
+    )
+    changed = NewsItem(
+        agency=original.agency,
+        agency_en=original.agency_en,
+        unit_category=original.unit_category,
+        title=original.title,
+        link=original.link,
+        published_at=original.published_at,
+        summary="Corrected summary",
+    )
+
+    assert make_data_fingerprint([original], []) != make_data_fingerprint([changed], [])

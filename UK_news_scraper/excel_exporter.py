@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 import re
 
@@ -35,6 +36,7 @@ PARLIAMENT_MATCH_HEADERS = PARLIAMENT_HEADERS + ("命中觀測領域", "命中�
 TITLE_COLUMN = 5
 MATCH_FILL = PatternFill("solid", fgColor="FFFF00")
 SECTION_FILL = PatternFill("solid", fgColor="BDD7EE")
+DEFAULT_TRANSLATION_CONCURRENCY = 4
 
 
 def export_news(
@@ -321,19 +323,39 @@ async def _translate_titles_async(
     translator_class,
     content_label: str,
 ) -> dict[str, str]:
-    translations: dict[str, str] = {}
-    async with translator_class() as translator:
-        for title in unique_titles:
-            translated_title = ""
-            try:
-                translated = await translator.translate(title, src="en", dest="zh-tw")
-            except Exception as exc:
-                print(f"[warn] googletrans {content_label}翻譯失敗，改用 deep-translator：{title} ({exc})")
-            else:
-                translated_title = translated.text
+    semaphore = asyncio.Semaphore(_translation_concurrency())
 
-            translations[title] = _translation_or_fallback(title, translated_title)
-    return translations
+    async with translator_class() as translator:
+        async def translate_one(title: str) -> tuple[str, str]:
+            translated_title = ""
+            async with semaphore:
+                try:
+                    translated = await translator.translate(title, src="en", dest="zh-tw")
+                except Exception as exc:
+                    print(f"[warn] googletrans {content_label}翻譯失敗，改用 deep-translator：{title} ({exc})")
+                else:
+                    translated_title = translated.text
+            return title, translated_title
+
+        results = await asyncio.gather(*(translate_one(title) for title in unique_titles))
+    return {
+        title: _translation_or_fallback(title, translated_title)
+        for title, translated_title in results
+    }
+
+
+def _translation_concurrency() -> int:
+    configured = os.environ.get("UK_NEWS_TRANSLATION_CONCURRENCY")
+    if not configured:
+        return DEFAULT_TRANSLATION_CONCURRENCY
+    try:
+        return max(1, int(configured))
+    except ValueError:
+        print(
+            "[warn] UK_NEWS_TRANSLATION_CONCURRENCY 必須是整數，"
+            f"改用預設值 {DEFAULT_TRANSLATION_CONCURRENCY}。"
+        )
+        return DEFAULT_TRANSLATION_CONCURRENCY
 
 
 def _translation_or_fallback(title: str, translated_title: str) -> str:

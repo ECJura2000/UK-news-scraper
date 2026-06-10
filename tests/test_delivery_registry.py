@@ -3,7 +3,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from UK_news_scraper.delivery_registry import claim_delivery, complete_delivery, release_delivery
+from UK_news_scraper.delivery_registry import (
+    claim_delivery,
+    complete_delivery,
+    delivery_status,
+    recover_claim,
+    release_delivery,
+)
 from UK_news_scraper.runtime_lock import LockUnavailable, exclusive_lock
 
 
@@ -65,3 +71,19 @@ def test_run_lock_rejects_second_holder(tmp_path):
         with pytest.raises(LockUnavailable):
             with exclusive_lock(lock):
                 pass
+
+
+def test_claim_status_and_confirmed_recovery(tmp_path):
+    registry = tmp_path / "registry.json"
+    summary = tmp_path / "summary.json"
+    _summary(summary)
+    claim_delivery(summary, registry)
+
+    claimed = delivery_status(state="claimed", registry_path=registry)
+    assert claimed["count"] == 1
+    assert claimed["records"]["delivery-1"]["state"] == "claimed"
+
+    with pytest.raises(ValueError, match="明確確認"):
+        recover_claim("delivery-1", confirmed=False, registry_path=registry)
+    assert recover_claim("delivery-1", confirmed=True, registry_path=registry)["released"]
+    assert delivery_status("delivery-1", registry_path=registry)["record"] is None

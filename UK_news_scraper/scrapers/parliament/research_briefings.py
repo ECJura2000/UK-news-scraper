@@ -238,35 +238,55 @@ def _parse_api_item(item: dict[str, Any]) -> ParliamentBriefing | None:
     )
 
 
-def _fetch_rss(publisher: str, feed_url: str, since: datetime) -> list[ParliamentBriefing]:
-    feed = parse_feed(feed_url)
+def _fetch_rss(
+    publisher: str,
+    feed_url: str,
+    since: datetime,
+    max_pages: int = 20,
+) -> list[ParliamentBriefing]:
     items: list[ParliamentBriefing] = []
-    for entry in feed.entries:
-        published_at = parse_feed_datetime(entry)
-        if not published_at or published_at < since:
-            continue
-        title = clean_text(str(getattr(entry, "title", "")))
-        webpage_url = str(getattr(entry, "link", ""))
-        content = _entry_content(entry)
-        identifier = _identifier(webpage_url, str(getattr(entry, "id", "")), title)
-        pdf_url = _pdf_url(content, identifier)
-        if not pdf_url and identifier.startswith(("CBP-", "SN-")):
-            pdf_url = f"https://researchbriefings.files.parliament.uk/documents/{identifier}/{identifier}.pdf"
-        items.append(
-            ParliamentBriefing(
-                published_at=published_at,
-                chamber=CHAMBERS[publisher],
-                publisher=publisher,
-                title=title,
-                summary=clean_text(str(getattr(entry, "summary", ""))),
-                identifier=identifier,
-                webpage_url=webpage_url,
-                pdf_url=pdf_url,
-                topics=_rss_topics(entry),
-                fetched_from=f"Official RSS: {feed_url}",
+    for page in range(1, max_pages + 1):
+        page_url = _rss_page_url(feed_url, page)
+        feed = parse_feed(page_url)
+        page_dates: list[datetime] = []
+        for entry in feed.entries:
+            published_at = parse_feed_datetime(entry)
+            if not published_at:
+                continue
+            page_dates.append(published_at)
+            if published_at < since:
+                continue
+            title = clean_text(str(getattr(entry, "title", "")))
+            webpage_url = str(getattr(entry, "link", ""))
+            content = _entry_content(entry)
+            identifier = _identifier(webpage_url, str(getattr(entry, "id", "")), title)
+            pdf_url = _pdf_url(content, identifier)
+            if not pdf_url and identifier.startswith(("CBP-", "SN-")):
+                pdf_url = f"https://researchbriefings.files.parliament.uk/documents/{identifier}/{identifier}.pdf"
+            items.append(
+                ParliamentBriefing(
+                    published_at=published_at,
+                    chamber=CHAMBERS[publisher],
+                    publisher=publisher,
+                    title=title,
+                    summary=clean_text(str(getattr(entry, "summary", ""))),
+                    identifier=identifier,
+                    webpage_url=webpage_url,
+                    pdf_url=pdf_url,
+                    topics=_rss_topics(entry),
+                    fetched_from=f"Official RSS: {feed_url}",
+                )
             )
-        )
-    return items
+        if len(feed.entries) < 10 or not page_dates or min(page_dates) < since:
+            break
+    return _dedupe(items)
+
+
+def _rss_page_url(feed_url: str, page: int) -> str:
+    if page <= 1:
+        return feed_url
+    separator = "&" if "?" in feed_url else "?"
+    return f"{feed_url}{separator}paged={page}"
 
 
 def _fetch_lords_science_technology_archive(

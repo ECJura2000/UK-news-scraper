@@ -2,6 +2,8 @@
 
 依據「國際觀測用(英國)」Word 檔中的機關與觀測領域，抓取英國相關機關新聞稿。程式優先使用 RSS/Atom feed，並以觀測領域關鍵字先做初步篩選。同一份 Excel 也會納入 UK Parliament 的 Commons Library、Lords Library 與 POST research briefings。
 
+完整的機關、RSS／API、國會資料與第三方備援入口請見 [資料來源](SOURCES.md)。程式碼授權與來源內容的權利界線請見 [NOTICE](NOTICE.md)。
+
 ## 使用方式
 
 ```bash
@@ -14,6 +16,7 @@ python3 -m UK_news_scraper
 
 翻譯會使用持久快取，未命中內容預設以 4 個有限併發請求翻譯。可用
 `UK_NEWS_TRANSLATION_CONCURRENCY` 調整併發數。
+翻譯功能透過 `googletrans`／`deep-translator` 所連接的外部翻譯服務處理文字；不應傳送機密、個人或未公開內容。
 
 第一次執行前請先安裝套件：
 
@@ -137,3 +140,7 @@ python3 -m UK_news_scraper.delivery_registry recover --delivery-id <delivery_id>
 
 來源健康門檻依機關發布頻率設定：高頻來源要求近 14 天有資料，低頻來源
 使用 30、45 或 60 天 freshness 門檻，避免把正常的低頻發布誤判為異常。
+
+## 授權
+
+本專案程式碼使用 [MIT License](LICENSE)。抓取的新聞、國會研究資料、翻譯結果與第三方備援結果仍受各原始提供者的使用條款約束，詳見 [NOTICE](NOTICE.md)。

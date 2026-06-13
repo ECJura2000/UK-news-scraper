@@ -15,8 +15,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from UK_news_scraper.dedupe import dedupe_news_items
-from UK_news_scraper.models import NewsItem
+from UK_news_scraper.dedupe import dedupe_news_items  # noqa: E402
+from UK_news_scraper.models import NewsItem  # noqa: E402
 
 
 def percentile(samples: list[float], p: float) -> float:

@@ -4,7 +4,8 @@ from time import monotonic, sleep
 
 from ...config import DEFAULT_MAX_WORKERS
 from ...errors import UKNewsError, is_retryable_error
-from .registry import AgencyFetchStatus, FetchAllResult, build_scrapers, dedupe_items, _health_warning, _newest_published_at
+from .registry import build_scrapers, dedupe_items
+from .status import AgencyFetchStatus, FetchAllResult, health_warning, newest_published_at
 
 
 RETRY_DELAY_SECONDS = 2
@@ -65,8 +66,8 @@ def _success_status(scraper, items, since, duration, attempts):
         item_count=len(items),
         attempts=attempts,
         duration_seconds=duration,
-        newest_published_at=_newest_published_at(items),
-        warning=_health_warning(scraper.agency.short_name, items, since),
+        newest_published_at=newest_published_at(items),
+        warning=health_warning(scraper.agency.short_name, items, since),
     )
 
 

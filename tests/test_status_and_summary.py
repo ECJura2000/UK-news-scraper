@@ -33,7 +33,6 @@ def test_parliament_failure_makes_overall_status_degraded():
 
 
 def test_run_summary_is_machine_readable(tmp_path):
-    start = datetime(2026, 5, 24, 16, tzinfo=timezone.utc)
     end = datetime(2026, 6, 8, 16, tzinfo=timezone.utc)
     output = tmp_path / "report.xlsx"
     fingerprint = "a" * 64

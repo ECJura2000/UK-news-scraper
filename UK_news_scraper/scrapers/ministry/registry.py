@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import re
 from typing import Any
 from urllib.parse import quote, urljoin
@@ -11,18 +10,30 @@ from bs4 import BeautifulSoup
 from ...config import (
     AGENCIES,
     DEFAULT_MAX_WORKERS,
-    SOURCE_HEALTH_MAX_AGE_DAYS,
-    SOURCE_HEALTH_MIN_ITEMS,
     TOPIC_RULES,
 )
 from ...http.async_client import get_text
 from ...errors import DownloadError, UKNewsError
-from ...models import Agency, NewsItem, ParliamentBriefing, SourceHealth
+from ...models import Agency, NewsItem, ParliamentBriefing
 from ...rss import discover_feed_urls, parse_feed
 from ..base import Scraper
 from .utils.date import parse_datetime_text, parse_feed_datetime
 from .utils.dedupe import dedupe_items
 from .utils.text import clean_text, keyword_in_text, normalize_for_match
+from .status import AgencyFetchStatus, FetchAllResult, health_warning as _health_warning, newest_published_at as _newest_published_at
+
+__all__ = [
+    "AgencyFetchStatus",
+    "FetchAllResult",
+    "_health_warning",
+    "_newest_published_at",
+    "AgencyFeedScraper",
+    "apply_parliament_topic_filter",
+    "apply_topic_filter",
+    "build_scrapers",
+    "fetch_all",
+    "fetch_all_with_status",
+]
 
 
 RETRY_DELAY_SECONDS = 2
@@ -35,48 +46,6 @@ ELECTORAL_COMMISSION_GOOGLE_NEWS_EXCLUDED_TITLES = {
     "living abroad",
     "resources for media",
 }
-
-
-@dataclass
-class AgencyFetchStatus:
-    agency_name: str
-    success: bool
-    source_name: str = ""
-    item_count: int = 0
-    attempts: int = 1
-    error: str = ""
-    duration_seconds: float = 0.0
-    newest_published_at: str = ""
-    warning: str = ""
-
-
-@dataclass
-class FetchAllResult:
-    items: list[NewsItem]
-    statuses: list[AgencyFetchStatus] = field(default_factory=list)
-
-    @property
-    def all_successful(self) -> bool:
-        return all(status.success and not status.warning for status in self.statuses)
-
-    @property
-    def failed_statuses(self) -> list[AgencyFetchStatus]:
-        return [status for status in self.statuses if not status.success]
-
-    @property
-    def source_health(self) -> list[SourceHealth]:
-        return [
-            SourceHealth(
-                source=status.source_name,
-                critical=True,
-                success=status.success,
-                item_count=status.item_count,
-                duration_seconds=round(status.duration_seconds, 3),
-                newest_published_at=status.newest_published_at,
-                warning=status.warning or status.error,
-            )
-            for status in self.statuses
-        ]
 
 
 class AgencyFeedScraper(Scraper):
@@ -475,26 +444,3 @@ def _entry_summary(entry: Any) -> str:
     if isinstance(content, list):
         return clean_text(" ".join(str(part.get("value", part)) for part in content))
     return clean_text(str(content))
-
-
-def _health_warning(source_name: str, items: list[NewsItem], since: datetime) -> str:
-    item_count = len(items)
-    minimum = SOURCE_HEALTH_MIN_ITEMS.get(source_name, 0)
-    if item_count < minimum:
-        return f"{source_name} 筆數異常：取得 {item_count} 筆，低於健康門檻 {minimum} 筆"
-    maximum_age_days = SOURCE_HEALTH_MAX_AGE_DAYS.get(source_name)
-    now = datetime.now(timezone.utc)
-    if (
-        maximum_age_days is not None
-        and items
-        and since >= now - timedelta(days=30)
-        and max(item.published_at for item in items) < now - timedelta(days=maximum_age_days)
-    ):
-        return f"{source_name} 最新資料已超過 {maximum_age_days} 天"
-    return ""
-
-
-def _newest_published_at(items: list[NewsItem]) -> str:
-    if not items:
-        return ""
-    return max(item.published_at for item in items).isoformat()

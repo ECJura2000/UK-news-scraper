@@ -1,1 +1,5 @@
 pytest==9.0.3
+hypothesis>=6,<7
+pip-audit>=2,<3
+pytest-cov>=6,<8
+ruff>=0.15,<1

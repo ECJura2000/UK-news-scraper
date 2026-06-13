@@ -12,6 +12,9 @@
 - Update `requirement-lock.txt`, `requirement-dev.txt`, and build requirements together.
 - Run `python3 scripts/benchmark_capacity.py --sizes 1000 10000 100000`.
 - Review benchmark artifacts and observability warnings before release.
+- CI compares results with `benchmarks/baseline.json`; update it only after reviewing an intentional performance change.
+- The scheduled non-blocking `source smoke` workflow checks representative upstream endpoints.
+- Security audit ignores only `PYSEC-2022-252` because `deep-translator` currently has no fixed release.
 
 ## Recover A Delivery Claim
 
@@ -22,4 +25,3 @@ python3 -m UK_news_scraper.delivery_registry recover --delivery-id <id> --confir
 ```
 
 Never release a claim without checking the mailbox first; doing so can permit a duplicate send.
-

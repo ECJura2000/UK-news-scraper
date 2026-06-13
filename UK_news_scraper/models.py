@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
+
+
+class RunStatus(str, Enum):
+    COMPLETE = "complete"
+    DEGRADED = "degraded"
 
 
 @dataclass(frozen=True)

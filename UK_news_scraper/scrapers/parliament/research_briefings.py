@@ -13,6 +13,7 @@ from urllib.parse import urlencode, urljoin
 from bs4 import BeautifulSoup
 
 from ...http.async_client import get_json, get_text
+from ...external_schemas import validate_parliament_api_payload
 from ...models import ParliamentBriefing, SourceHealth
 from ...rss import parse_feed
 from ..ministry.utils.date import parse_datetime_text, parse_feed_datetime
@@ -205,9 +206,7 @@ def _fetch_api(since: datetime, page_size: int, max_pages: int) -> list[Parliame
     for page in range(max_pages):
         params = urlencode({"_view": "all", "_page": page, "_pageSize": page_size, "_sort": "-date"})
         payload = get_json(f"{BASE_URL}?{params}", timeout=5)
-        page_items = payload.get("result", {}).get("items", [])
-        if not isinstance(page_items, list):
-            raise ValueError("API result.items 格式異常")
+        page_items = validate_parliament_api_payload(payload)
         parsed = [_parse_api_item(item) for item in page_items]
         items.extend(item for item in parsed if item and item.published_at >= since)
         dates = [item.published_at for item in parsed if item]

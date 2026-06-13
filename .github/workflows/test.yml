@@ -42,3 +42,17 @@ jobs:
         with:
           name: UKNewsScraper-${{ runner.os }}
           path: dist/*
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: python scripts/benchmark_capacity.py --sizes 1000 10000 --workers 1 4 6 > benchmark-results.json
+      - run: python scripts/check_benchmark_budget.py benchmark-results.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: uk-news-benchmark-results
+          path: benchmark-results.json

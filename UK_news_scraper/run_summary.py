@@ -6,7 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from .models import NewsItem, ParliamentBriefing, SourceHealth
+from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
 
 
 DATA_FINGERPRINT_VERSION = "v2"
@@ -23,7 +23,7 @@ class RunSummary:
     filtered_news_count: int
     parliament_count: int
     filtered_parliament_count: int
-    status: str
+    status: RunStatus
     warnings: tuple[str, ...]
     data_fingerprint: str
     delivery_id: str
@@ -41,6 +41,25 @@ def write_run_summary(summary: RunSummary, output_path: str | Path) -> Path:
     return path
 
 
+def validate_run_summary_payload(payload: object) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("run summary 必須是 JSON object")
+    required = {
+        "delivery_id",
+        "run_id",
+        "status",
+        "data_fingerprint",
+        "output_file",
+    }
+    missing = required - set(payload)
+    if missing:
+        raise ValueError(f"run summary 缺少欄位：{sorted(missing)}")
+    RunStatus(payload["status"])
+    if not all(isinstance(payload[key], str) and payload[key] for key in required):
+        raise ValueError("run summary 必要欄位必須是非空字串")
+    return payload
+
+
 def make_run_id(period_start: date, period_end: date) -> str:
     return f"uk-news-{period_start.isoformat()}_{period_end.isoformat()}"
 
@@ -49,47 +68,55 @@ def make_data_fingerprint(
     news_items: list[NewsItem],
     parliament_items: list[ParliamentBriefing],
 ) -> str:
-    records = [f"schema|{DATA_FINGERPRINT_VERSION}"]
-    records.extend(
-        "|".join(
-            (
-                "news",
-                item.agency,
-                item.agency_en,
-                item.unit_category or "",
-                item.date_text,
-                item.title,
-                item.summary,
-                item.link,
-                item.source_feed,
-                ",".join(sorted(item.matched_topics)),
-                ",".join(sorted(item.matched_keywords, key=str.casefold)),
-            )
-        )
+    records = [
+        {
+            "type": "news",
+            "agency": item.agency,
+            "agency_en": item.agency_en,
+            "unit_category": item.unit_category,
+            "date": item.date_text,
+            "title": item.title,
+            "summary": item.summary,
+            "link": item.link,
+            "source_feed": item.source_feed,
+            "matched_topics": sorted(item.matched_topics),
+            "matched_keywords": sorted(item.matched_keywords, key=str.casefold),
+        }
         for item in news_items
-    )
+    ]
     records.extend(
-        "|".join(
-            (
-                "parliament",
-                item.publisher,
-                item.chamber,
-                item.date_text,
-                item.identifier,
-                item.document_type,
-                item.title,
-                item.summary,
-                item.webpage_url,
-                item.pdf_url,
-                item.fetched_from,
-                ",".join(sorted(item.topics)),
-                ",".join(sorted(item.matched_topics)),
-                ",".join(sorted(item.matched_keywords, key=str.casefold)),
-            )
-        )
+        {
+            "type": "parliament",
+            "publisher": item.publisher,
+            "chamber": item.chamber,
+            "date": item.date_text,
+            "identifier": item.identifier,
+            "document_type": item.document_type,
+            "title": item.title,
+            "summary": item.summary,
+            "webpage_url": item.webpage_url,
+            "pdf_url": item.pdf_url,
+            "fetched_from": item.fetched_from,
+            "topics": sorted(item.topics),
+            "matched_topics": sorted(item.matched_topics),
+            "matched_keywords": sorted(item.matched_keywords, key=str.casefold),
+        }
         for item in parliament_items
     )
-    payload = "\n".join(sorted(records)).encode("utf-8")
+    records.sort(
+        key=lambda record: json.dumps(
+            record,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    payload = json.dumps(
+        {"schema": DATA_FINGERPRINT_VERSION, "records": records},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 

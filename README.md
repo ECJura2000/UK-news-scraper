@@ -4,6 +4,10 @@
 
 完整的機關、RSS／API、國會資料與第三方備援入口請見 [資料來源](SOURCES.md)。程式碼授權與來源內容的權利界線請見 [NOTICE](NOTICE.md)。
 
+資料流、模組責任、資料結構選擇與複雜度分析請見 [架構說明](ARCHITECTURE.md)。
+Capacity, dedupe, and concurrency measurements are documented in [PERFORMANCE.md](PERFORMANCE.md).
+Deployment, source maintenance, and delivery recovery are documented in [docs/MAINTENANCE.md](docs/MAINTENANCE.md).
+
 ## 使用方式
 
 ```bash

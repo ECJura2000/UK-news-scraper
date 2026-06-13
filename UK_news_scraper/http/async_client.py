@@ -7,6 +7,7 @@ from typing import Any
 from urllib3.util.retry import Retry
 
 from ..config import DEFAULT_RETRY_TOTAL, DEFAULT_TIMEOUT_SECONDS, USER_AGENT
+from ..errors import DownloadError, ParseError
 
 
 _THREAD_LOCAL = local()
@@ -39,10 +40,16 @@ def get_session() -> requests.Session:
 
 
 def get_text(url: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str:
-    response = get_session().get(url, timeout=timeout, headers=_headers())
+    try:
+        response = get_session().get(url, timeout=timeout, headers=_headers())
+    except requests.RequestException as exc:
+        raise DownloadError(f"download failed: {url}") from exc
     if response.status_code == 403 and _looks_like_cloudflare_challenge(response.text):
         return _get_text_with_browser_tls(url, timeout)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise DownloadError(f"download failed: {url}") from exc
     return response.text
 
 
@@ -57,7 +64,10 @@ def get_json(
         request_headers.update(headers)
     response = get_session().get(url, timeout=timeout, headers=request_headers)
     response.raise_for_status()
-    return response.json()
+    try:
+        return response.json()
+    except requests.JSONDecodeError as exc:
+        raise ParseError(f"invalid JSON response: {url}") from exc
 
 
 def _headers() -> dict[str, str]:

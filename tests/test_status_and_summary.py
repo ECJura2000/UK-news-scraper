@@ -33,7 +33,6 @@ def test_parliament_failure_makes_overall_status_degraded():
 
 
 def test_run_summary_is_machine_readable(tmp_path):
-    start = datetime(2026, 5, 24, 16, tzinfo=timezone.utc)
     end = datetime(2026, 6, 8, 16, tzinfo=timezone.utc)
     output = tmp_path / "report.xlsx"
     fingerprint = "a" * 64
@@ -83,3 +82,45 @@ def test_data_fingerprint_changes_when_visible_summary_changes():
     )
 
     assert make_data_fingerprint([original], []) != make_data_fingerprint([changed], [])
+
+
+def test_data_fingerprint_is_not_ambiguous_when_fields_contain_delimiters():
+    first = NewsItem(
+        agency="A|B",
+        agency_en="C",
+        unit_category=None,
+        title="Title",
+        link="https://example.com",
+        published_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+    second = NewsItem(
+        agency="A",
+        agency_en="B|C",
+        unit_category=None,
+        title="Title",
+        link="https://example.com",
+        published_at=first.published_at,
+    )
+
+    assert make_data_fingerprint([first], []) != make_data_fingerprint([second], [])
+
+
+def test_data_fingerprint_is_independent_of_record_order():
+    first = NewsItem(
+        agency="A",
+        agency_en="A",
+        unit_category=None,
+        title="First",
+        link="https://example.com/first",
+        published_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+    second = NewsItem(
+        agency="B",
+        agency_en="B",
+        unit_category=None,
+        title="Second",
+        link="https://example.com/second",
+        published_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
+    )
+
+    assert make_data_fingerprint([first, second], []) == make_data_fingerprint([second, first], [])

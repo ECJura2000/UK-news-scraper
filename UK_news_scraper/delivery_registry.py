@@ -1,18 +1,56 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from enum import Enum
 import json
 from pathlib import Path
+from typing import Any
 
+from .models import RunStatus
+from .run_summary import validate_run_summary_payload
 from .runtime_lock import exclusive_lock
 
 
 DEFAULT_REGISTRY = Path.home() / ".codex" / "automations" / "uk" / "sent_run_ids.json"
 
 
+class DeliveryState(str, Enum):
+    CLAIMED = "claimed"
+    SENT = "sent"
+
+
+@dataclass
+class DeliveryRecord:
+    state: DeliveryState
+    run_id: str
+    status: RunStatus
+    data_fingerprint: str
+    claimed_at: str
+    excel_path: str
+    message_id: str = ""
+    sent_at: str = ""
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "DeliveryRecord":
+        return cls(
+            state=DeliveryState(value["state"]),
+            run_id=str(value["run_id"]),
+            status=RunStatus(value["status"]),
+            data_fingerprint=str(value["data_fingerprint"]),
+            claimed_at=str(value["claimed_at"]),
+            excel_path=str(value["excel_path"]),
+            message_id=str(value.get("message_id", "")),
+            sent_at=str(value.get("sent_at", "")),
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        return {key: value.value if isinstance(value, Enum) else value for key, value in asdict(self).items()}
+
+
 def claim_delivery(summary_path: str | Path, registry_path: str | Path = DEFAULT_REGISTRY) -> dict:
-    summary = _read_json(Path(summary_path))
+    summary = validate_run_summary_payload(_read_json(Path(summary_path)))
     delivery_id = summary["delivery_id"]
     registry_path = Path(registry_path)
     with exclusive_lock(registry_path.with_suffix(".lock"), wait_seconds=10):
@@ -28,14 +66,14 @@ def claim_delivery(summary_path: str | Path, registry_path: str | Path = DEFAULT
         existing = registry.get(delivery_id)
         if existing and existing.get("state") in {"claimed", "sent"}:
             return {"claimed": False, "delivery_id": delivery_id, "existing": existing}
-        registry[delivery_id] = {
-            "state": "claimed",
-            "run_id": summary["run_id"],
-            "status": summary["status"],
-            "data_fingerprint": summary["data_fingerprint"],
-            "claimed_at": datetime.now(timezone.utc).isoformat(),
-            "excel_path": summary["output_file"],
-        }
+        registry[delivery_id] = DeliveryRecord(
+            state=DeliveryState.CLAIMED,
+            run_id=summary["run_id"],
+            status=summary["status"],
+            data_fingerprint=summary["data_fingerprint"],
+            claimed_at=datetime.now(timezone.utc).isoformat(),
+            excel_path=summary["output_file"],
+        ).to_dict()
         _atomic_write_json(registry_path, registry)
     return {"claimed": True, "delivery_id": delivery_id}
 
@@ -48,18 +86,16 @@ def complete_delivery(
     registry_path = Path(registry_path)
     with exclusive_lock(registry_path.with_suffix(".lock"), wait_seconds=10):
         registry = _read_json(registry_path, default={})
-        record = registry.get(delivery_id)
-        if not record or record.get("state") != "claimed":
+        raw_record = registry.get(delivery_id)
+        if not raw_record or raw_record.get("state") != DeliveryState.CLAIMED.value:
             raise ValueError(f"delivery 尚未 claim：{delivery_id}")
-        record.update(
-            {
-                "state": "sent",
-                "message_id": message_id,
-                "sent_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        record = DeliveryRecord.from_dict(raw_record)
+        record.state = DeliveryState.SENT
+        record.message_id = message_id
+        record.sent_at = datetime.now(timezone.utc).isoformat()
+        registry[delivery_id] = record.to_dict()
         _atomic_write_json(registry_path, registry)
-    return record
+    return registry[delivery_id]
 
 
 def release_delivery(

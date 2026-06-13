@@ -87,3 +87,24 @@ def test_claim_status_and_confirmed_recovery(tmp_path):
         recover_claim("delivery-1", confirmed=False, registry_path=registry)
     assert recover_claim("delivery-1", confirmed=True, registry_path=registry)["released"]
     assert delivery_status("delivery-1", registry_path=registry)["record"] is None
+
+
+def test_claim_rejects_invalid_summary_schema(tmp_path):
+    summary = tmp_path / "summary.json"
+    summary.write_text(json.dumps({"run_id": "run-1"}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="缺少欄位"):
+        claim_delivery(summary, tmp_path / "registry.json")
+
+
+def test_atomic_registry_write_failure_preserves_existing_file(monkeypatch, tmp_path):
+    from UK_news_scraper import delivery_registry
+
+    registry = tmp_path / "registry.json"
+    registry.write_text('{"existing": {"state": "sent"}}', encoding="utf-8")
+    monkeypatch.setattr(delivery_registry.Path, "replace", lambda *_: (_ for _ in ()).throw(OSError("interrupted")))
+
+    with pytest.raises(OSError, match="interrupted"):
+        delivery_registry._atomic_write_json(registry, {"new": {}})
+
+    assert json.loads(registry.read_text(encoding="utf-8")) == {"existing": {"state": "sent"}}

@@ -17,6 +17,7 @@ from .config import (
 from .dedupe import dedupe_news_items
 from .excel_exporter import export_news
 from .logging_utils import log_event
+from .models import RunStatus
 from .run_summary import (
     RunSummary,
     make_data_fingerprint,
@@ -25,10 +26,10 @@ from .run_summary import (
     write_run_summary,
 )
 from .runtime_lock import LockUnavailable, exclusive_lock
+from .scrapers.ministry.orchestration import fetch_all_with_status
 from .scrapers.ministry.registry import (
     apply_parliament_topic_filter,
     apply_topic_filter,
-    fetch_all_with_status,
 )
 from .scrapers.parliament import fetch_parliament_briefings
 
@@ -285,8 +286,8 @@ def _run_status(fetch_result, parliament_result) -> tuple[str, list[str]]:
         if health.success and health.warning and health.warning not in warnings
     )
     if fetch_result.all_successful and parliament_result.all_successful:
-        return "complete", warnings
-    return "degraded", warnings
+        return RunStatus.COMPLETE, warnings
+    return RunStatus.DEGRADED, warnings
 
 
 if __name__ == "__main__":

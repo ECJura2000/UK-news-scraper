@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import re
-from time import monotonic, sleep
 from typing import Any
 from urllib.parse import quote, urljoin
 
@@ -13,17 +10,30 @@ from bs4 import BeautifulSoup
 from ...config import (
     AGENCIES,
     DEFAULT_MAX_WORKERS,
-    SOURCE_HEALTH_MAX_AGE_DAYS,
-    SOURCE_HEALTH_MIN_ITEMS,
     TOPIC_RULES,
 )
 from ...http.async_client import get_text
-from ...models import Agency, NewsItem, ParliamentBriefing, SourceHealth
+from ...errors import DownloadError, UKNewsError
+from ...models import Agency, NewsItem, ParliamentBriefing
 from ...rss import discover_feed_urls, parse_feed
 from ..base import Scraper
 from .utils.date import parse_datetime_text, parse_feed_datetime
 from .utils.dedupe import dedupe_items
 from .utils.text import clean_text, keyword_in_text, normalize_for_match
+from .status import AgencyFetchStatus, FetchAllResult, health_warning as _health_warning, newest_published_at as _newest_published_at
+
+__all__ = [
+    "AgencyFetchStatus",
+    "FetchAllResult",
+    "_health_warning",
+    "_newest_published_at",
+    "AgencyFeedScraper",
+    "apply_parliament_topic_filter",
+    "apply_topic_filter",
+    "build_scrapers",
+    "fetch_all",
+    "fetch_all_with_status",
+]
 
 
 RETRY_DELAY_SECONDS = 2
@@ -36,48 +46,6 @@ ELECTORAL_COMMISSION_GOOGLE_NEWS_EXCLUDED_TITLES = {
     "living abroad",
     "resources for media",
 }
-
-
-@dataclass
-class AgencyFetchStatus:
-    agency_name: str
-    success: bool
-    source_name: str = ""
-    item_count: int = 0
-    attempts: int = 1
-    error: str = ""
-    duration_seconds: float = 0.0
-    newest_published_at: str = ""
-    warning: str = ""
-
-
-@dataclass
-class FetchAllResult:
-    items: list[NewsItem]
-    statuses: list[AgencyFetchStatus] = field(default_factory=list)
-
-    @property
-    def all_successful(self) -> bool:
-        return all(status.success and not status.warning for status in self.statuses)
-
-    @property
-    def failed_statuses(self) -> list[AgencyFetchStatus]:
-        return [status for status in self.statuses if not status.success]
-
-    @property
-    def source_health(self) -> list[SourceHealth]:
-        return [
-            SourceHealth(
-                source=status.source_name,
-                critical=True,
-                success=status.success,
-                item_count=status.item_count,
-                duration_seconds=round(status.duration_seconds, 3),
-                newest_published_at=status.newest_published_at,
-                warning=status.warning or status.error,
-            )
-            for status in self.statuses
-        ]
 
 
 class AgencyFeedScraper(Scraper):
@@ -101,7 +69,7 @@ class AgencyFeedScraper(Scraper):
             attempted_sources += 1
             try:
                 feed = parse_feed(feed_url)
-            except Exception as exc:
+            except (UKNewsError, OSError, ValueError, KeyError, TypeError) as exc:
                 print(f"[warn] RSS/Atom 讀取失敗：{self.agency.short_name} {feed_url} ({exc})")
                 continue
             successful_sources += 1
@@ -109,7 +77,7 @@ class AgencyFeedScraper(Scraper):
             for entry in feed.entries:
                 try:
                     item = self._entry_to_news_item(entry, feed_url, since)
-                except Exception as exc:
+                except (UKNewsError, OSError, ValueError, KeyError, TypeError) as exc:
                     print(f"[warn] 單筆 RSS 解析失敗：{self.agency.short_name} {feed_url} ({exc})")
                     continue
                 if item:
@@ -136,7 +104,7 @@ class AgencyFeedScraper(Scraper):
                 items.extend(fallback_items)
 
         if attempted_sources and not successful_sources:
-            raise RuntimeError("所有來源讀取失敗")
+            raise DownloadError("所有來源讀取失敗")
 
         return dedupe_items(items)
 
@@ -439,90 +407,15 @@ def _matched_topics_and_keywords(haystack: str) -> tuple[list[str], list[str]]:
 
 
 def fetch_all_with_status(since: datetime, max_workers: int = DEFAULT_MAX_WORKERS) -> FetchAllResult:
-    all_items: list[NewsItem] = []
-    statuses: list[AgencyFetchStatus] = []
-    scrapers = build_scrapers()
-    workers = max(1, min(max_workers, len(scrapers)))
-    print(f"[info] 使用 {workers} 個 worker 併發抓取 {len(scrapers)} 個機關")
-    failed_scrapers: list[tuple[AgencyFeedScraper, str, float]] = []
+    from .orchestration import fetch_all_with_status as orchestrated_fetch_all_with_status
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_map = {}
-        for scraper in scrapers:
-            print(f"[info] 排入抓取 {scraper.agency.display_name}")
-            future_map[executor.submit(scraper.fetch, since)] = (scraper, monotonic())
-
-        for future in as_completed(future_map):
-            scraper, started_at = future_map[future]
-            duration = monotonic() - started_at
-            try:
-                items = future.result()
-            except Exception as exc:
-                print(f"[warn] 機關抓取失敗：{scraper.agency.display_name} ({exc})")
-                failed_scrapers.append((scraper, str(exc), duration))
-                continue
-            print(f"[info] 完成 {scraper.agency.display_name}：{len(items)} 筆")
-            statuses.append(
-                AgencyFetchStatus(
-                    agency_name=scraper.agency.display_name,
-                    source_name=scraper.agency.short_name,
-                    success=True,
-                    item_count=len(items),
-                    duration_seconds=duration,
-                    newest_published_at=_newest_published_at(items),
-                    warning=_health_warning(scraper.agency.short_name, items, since),
-                )
-            )
-            all_items.extend(items)
-
-    if failed_scrapers:
-        print(f"[info] 有 {len(failed_scrapers)} 個機關未抓取成功，等待 {RETRY_DELAY_SECONDS} 秒後重新抓取")
-        sleep(RETRY_DELAY_SECONDS)
-        retry_workers = max(1, min(workers, len(failed_scrapers)))
-        with ThreadPoolExecutor(max_workers=retry_workers) as executor:
-            future_map = {
-                executor.submit(scraper.fetch, since): (scraper, first_error, first_duration, monotonic())
-                for scraper, first_error, first_duration in failed_scrapers
-            }
-
-            for future in as_completed(future_map):
-                scraper, first_error, first_duration, started_at = future_map[future]
-                duration = first_duration + (monotonic() - started_at)
-                try:
-                    items = future.result()
-                except Exception as exc:
-                    print(f"[warn] 重試仍失敗：{scraper.agency.display_name} ({exc})")
-                    statuses.append(
-                        AgencyFetchStatus(
-                            agency_name=scraper.agency.display_name,
-                            source_name=scraper.agency.short_name,
-                            success=False,
-                            attempts=2,
-                            error=f"首次：{first_error}；重試：{exc}",
-                            duration_seconds=duration,
-                        )
-                    )
-                    continue
-                print(f"[info] 重試完成 {scraper.agency.display_name}：{len(items)} 筆")
-                statuses.append(
-                    AgencyFetchStatus(
-                        agency_name=scraper.agency.display_name,
-                        source_name=scraper.agency.short_name,
-                        success=True,
-                        item_count=len(items),
-                        attempts=2,
-                        duration_seconds=duration,
-                        newest_published_at=_newest_published_at(items),
-                        warning=_health_warning(scraper.agency.short_name, items, since),
-                    )
-                )
-                all_items.extend(items)
-
-    return FetchAllResult(items=dedupe_items(all_items), statuses=statuses)
+    return orchestrated_fetch_all_with_status(since, max_workers=max_workers)
 
 
 def fetch_all(since: datetime, max_workers: int = DEFAULT_MAX_WORKERS) -> list[NewsItem]:
-    return fetch_all_with_status(since, max_workers=max_workers).items
+    from .orchestration import fetch_all as orchestrated_fetch_all
+
+    return orchestrated_fetch_all(since, max_workers=max_workers)
 
 
 def _date_from_text(text: str, pattern: str) -> datetime | None:
@@ -551,26 +444,3 @@ def _entry_summary(entry: Any) -> str:
     if isinstance(content, list):
         return clean_text(" ".join(str(part.get("value", part)) for part in content))
     return clean_text(str(content))
-
-
-def _health_warning(source_name: str, items: list[NewsItem], since: datetime) -> str:
-    item_count = len(items)
-    minimum = SOURCE_HEALTH_MIN_ITEMS.get(source_name, 0)
-    if item_count < minimum:
-        return f"{source_name} 筆數異常：取得 {item_count} 筆，低於健康門檻 {minimum} 筆"
-    maximum_age_days = SOURCE_HEALTH_MAX_AGE_DAYS.get(source_name)
-    now = datetime.now(timezone.utc)
-    if (
-        maximum_age_days is not None
-        and items
-        and since >= now - timedelta(days=30)
-        and max(item.published_at for item in items) < now - timedelta(days=maximum_age_days)
-    ):
-        return f"{source_name} 最新資料已超過 {maximum_age_days} 天"
-    return ""
-
-
-def _newest_published_at(items: list[NewsItem]) -> str:
-    if not items:
-        return ""
-    return max(item.published_at for item in items).isoformat()

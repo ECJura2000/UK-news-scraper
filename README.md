@@ -4,6 +4,8 @@
 
 完整的機關、RSS／API、國會資料與第三方備援入口請見 [資料來源](SOURCES.md)。程式碼授權與來源內容的權利界線請見 [NOTICE](NOTICE.md)。
 
+專題成果請見 [正式報告](PROJECT_REPORT.md)、[操作示範](docs/DEMO.md)、[UAT](docs/UAT.md)、[災難復原](docs/DISASTER_RECOVERY.md) 與 [變更紀錄](CHANGELOG.md)。
+
 資料流、模組責任、資料結構選擇與複雜度分析請見 [架構說明](ARCHITECTURE.md)。
 Capacity, dedupe, and concurrency measurements are documented in [PERFORMANCE.md](PERFORMANCE.md).
 Deployment, source maintenance, and delivery recovery are documented in [docs/MAINTENANCE.md](docs/MAINTENANCE.md).

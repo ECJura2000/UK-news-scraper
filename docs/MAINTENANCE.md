@@ -15,6 +15,7 @@
 - CI compares results with `benchmarks/baseline.json`; update it only after reviewing an intentional performance change.
 - The scheduled non-blocking `source smoke` workflow checks representative upstream endpoints.
 - Security audit ignores only `PYSEC-2022-252` because `deep-translator` currently has no fixed release.
+- Append verified run summaries with `python3 scripts/record_long_term_run.py --input <summary.run.json>` for at least two weeks before presenting stability claims.
 
 ## Recover A Delivery Claim
 

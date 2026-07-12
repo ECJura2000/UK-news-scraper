@@ -8,7 +8,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -22,7 +22,16 @@ jobs:
       - run: python -m compileall -q UK_news_scraper tests
       - run: python -m ruff check UK_news_scraper tests scripts
       # deep-translator has no fixed release for PYSEC-2022-252; keep all other findings blocking.
-      - run: python -m pip_audit -r requirement-lock.txt --ignore-vuln PYSEC-2022-252
+      - name: Audit locked dependencies
+        run: python -m pip_audit -r requirement-lock.txt --ignore-vuln PYSEC-2022-252 --format json --output pip-audit.json
+      - name: Upload dependency audit
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: uk-news-pip-audit
+          path: pip-audit.json
+          if-no-files-found: warn
+          retention-days: 7
 
   build:
     needs: test
@@ -31,7 +40,7 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -39,8 +48,8 @@ jobs:
           cache-dependency-path: requirement-build.txt
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirement-build.txt
-      - run: python -m PyInstaller --clean --onefile --name UKNewsScraper run_scraper.py
-      - run: python -m PyInstaller --clean --onefile --name UKNewsScraper_protected run_scraper_protected.py
+      - run: python -m PyInstaller --clean --noconfirm --onefile --collect-data tzdata --name UKNewsScraper run_scraper.py
+      - run: python -m PyInstaller --clean --noconfirm --onefile --collect-data tzdata --name UKNewsScraper_protected run_scraper_protected.py
       - uses: actions/upload-artifact@v7
         with:
           name: UKNewsScraper-${{ runner.os }}
@@ -49,7 +58,7 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"

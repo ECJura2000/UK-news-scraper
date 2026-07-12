@@ -7,5 +7,7 @@ python3 -m venv .build-venv
 .build-venv/bin/python -m PyInstaller --clean --noconfirm --onefile --collect-data tzdata --name UKNewsScraper run_scraper.py
 .build-venv/bin/python -m PyInstaller --clean --noconfirm --onefile --collect-data tzdata --name UKNewsScraper_protected run_scraper_protected.py
 
-echo "macOS executable created: dist/UKNewsScraper"
-echo "macOS protected executable created: dist/UKNewsScraper_protected"
+chmod +x dist/UKNewsScraper dist/UKNewsScraper_protected
+
+echo "Linux executable created: dist/UKNewsScraper"
+echo "Linux protected executable created: dist/UKNewsScraper_protected"

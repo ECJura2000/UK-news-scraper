@@ -94,12 +94,42 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & .\dist\UKNewsScraper.exe --help | Out-File -Encoding utf8 dist\smoke-standard.txt
-          if ($LASTEXITCODE -ne 0) { throw "UKNewsScraper.exe smoke test failed" }
-          & .\dist\UKNewsScraper_protected.exe --help | Out-File -Encoding utf8 dist\smoke-protected.txt
-          if ($LASTEXITCODE -ne 0) { throw "UKNewsScraper_protected.exe smoke test failed" }
-          if ((Get-Item dist\smoke-standard.txt).Length -eq 0) { throw "standard smoke output is empty" }
-          if ((Get-Item dist\smoke-protected.txt).Length -eq 0) { throw "protected smoke output is empty" }
+          $tests = @(
+            @{ Name = "standard"; Executable = ".\dist\UKNewsScraper.exe" },
+            @{ Name = "protected"; Executable = ".\dist\UKNewsScraper_protected.exe" }
+          )
+          foreach ($test in $tests) {
+            $stdout = Join-Path $PWD "dist\smoke-$($test.Name)-stdout.txt"
+            $stderr = Join-Path $PWD "dist\smoke-$($test.Name)-stderr.txt"
+            $process = Start-Process `
+              -FilePath (Resolve-Path $test.Executable).Path `
+              -ArgumentList "--help" `
+              -Wait `
+              -PassThru `
+              -RedirectStandardOutput $stdout `
+              -RedirectStandardError $stderr
+            Write-Host "$($test.Name) exit code: $($process.ExitCode)"
+            if (Test-Path $stdout) { Get-Content $stdout }
+            if (Test-Path $stderr) { Get-Content $stderr }
+            if ($process.ExitCode -ne 0) {
+              throw "$($test.Name) executable exited with code $($process.ExitCode)"
+            }
+            if (-not (Test-Path $stdout) -or (Get-Item $stdout).Length -eq 0) {
+              throw "$($test.Name) executable produced no help output"
+            }
+          }
+      - name: Upload Windows smoke diagnostics
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: UKNewsScraper-Windows-diagnostics
+          path: |
+            dist/smoke-*-stdout.txt
+            dist/smoke-*-stderr.txt
+            build/UKNewsScraper/warn-UKNewsScraper.txt
+            build/UKNewsScraper_protected/warn-UKNewsScraper_protected.txt
+          if-no-files-found: warn
+          retention-days: 7
       - name: Create portable archive and SHA-256
         run: python scripts/package_release.py ${{ matrix.platform }}
       - uses: actions/upload-artifact@v7

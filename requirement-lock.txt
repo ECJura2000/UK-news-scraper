@@ -19,7 +19,7 @@ openpyxl==3.1.5
 pycparser==3.0
 requests==2.34.2
 sgmllib3k==1.0.0
-soupsieve==2.8.3
+soupsieve==2.8.4
 typing_extensions==4.15.0
 tzdata==2026.3
 urllib3==2.7.0

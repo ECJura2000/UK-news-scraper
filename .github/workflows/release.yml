@@ -1,0 +1,136 @@
+name: release executables
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirement-lock.txt
+            requirement-dev.txt
+      - name: Install validation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirement-lock.txt -r requirement-dev.txt
+      - name: Verify tag and source
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="$(python -c 'from UK_news_scraper import __version__; print(__version__)')"
+            test "$GITHUB_REF_NAME" = "v${version}"
+          fi
+          python -m ruff check .
+          python -m compileall -q UK_news_scraper run_scraper.py run_scraper_protected.py scripts/package_release.py
+          python -m pytest -q
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact: UKNewsScraper-Linux
+          - os: macos-latest
+            platform: macos
+            artifact: UKNewsScraper-macOS
+          - os: windows-latest
+            platform: windows
+            artifact: UKNewsScraper-Windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirement-build.txt
+      - name: Build Linux executables
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x build_linux.sh
+          ./build_linux.sh
+      - name: Build macOS executables
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x build_macos.sh
+          ./build_macos.sh
+      - name: Build Windows executables
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: build_windows.bat
+      - name: Smoke-test Linux or macOS executables
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./dist/UKNewsScraper --help > dist/smoke-standard.txt
+          ./dist/UKNewsScraper_protected --help > dist/smoke-protected.txt
+          test -s dist/smoke-standard.txt
+          test -s dist/smoke-protected.txt
+      - name: Smoke-test Windows executables
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\dist\UKNewsScraper.exe --help | Out-File -Encoding utf8 dist\smoke-standard.txt
+          if ($LASTEXITCODE -ne 0) { throw "UKNewsScraper.exe smoke test failed" }
+          & .\dist\UKNewsScraper_protected.exe --help | Out-File -Encoding utf8 dist\smoke-protected.txt
+          if ($LASTEXITCODE -ne 0) { throw "UKNewsScraper_protected.exe smoke test failed" }
+          if ((Get-Item dist\smoke-standard.txt).Length -eq 0) { throw "standard smoke output is empty" }
+          if ((Get-Item dist\smoke-protected.txt).Length -eq 0) { throw "protected smoke output is empty" }
+      - name: Create portable archive and SHA-256
+        run: python scripts/package_release.py ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/release/*.zip
+            dist/release/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: UKNewsScraper-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify release assets
+        run: |
+          find release-assets -maxdepth 1 -type f -print
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 6
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          body: |
+            此版本提供不需要安裝 Python 的可攜版。
+
+            1. 下載與作業系統相符的 ZIP。
+            2. 解壓縮。
+            3. Windows 可直接雙擊 `run_windows.bat`；macOS／Linux 請依 ZIP 內 `README.txt` 執行。
+
+            每個平台同時提供一般版與既有的 protected 版；一般使用者建議使用 `UKNewsScraper`。

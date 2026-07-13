@@ -41,4 +41,4 @@ chmod +x UKNewsScraper
 
 ## 驗證下載檔案
 
-每個 ZIP 都附有同名 `.sha256`。Linux／macOS 可用 `sha256sum -c`；Windows 可用 PowerShell 的 `Get-FileHash` 計算後比對。
+每個 Release 都附有一份 `SHA256SUMS.txt`，涵蓋三平台 ZIP。Linux／macOS 可用 `sha256sum -c`；Windows 可用 PowerShell 的 `Get-FileHash` 計算後比對。

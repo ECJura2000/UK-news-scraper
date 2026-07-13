@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import shutil
 import sys
 from pathlib import Path
@@ -19,15 +18,7 @@ PLATFORM_LABELS = {
 }
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def package(platform_name: str) -> tuple[Path, Path]:
+def package(platform_name: str) -> Path:
     label = PLATFORM_LABELS[platform_name]
     dist_dir = PROJECT_DIR / "dist"
     release_root = dist_dir / "release"
@@ -96,11 +87,8 @@ The protected edition is optional and uses the existing 30-day trial/password be
             base_dir=folder_name,
         )
     )
-    checksum = created.with_suffix(created.suffix + ".sha256")
-    checksum.write_text(f"{sha256(created)}  {created.name}\n", encoding="utf-8")
     print(created)
-    print(checksum)
-    return created, checksum
+    return created
 
 
 def main() -> int:

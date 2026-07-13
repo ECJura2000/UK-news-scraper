@@ -46,6 +46,12 @@ Windows：
 build_windows.bat
 ```
 
+Linux：
+
+```bash
+./build_linux.sh
+```
+
 macOS 會產生：
 
 - `dist/UKNewsScraper`：原始無密碼版
@@ -57,6 +63,8 @@ Windows 會產生：
 - `dist\UKNewsScraper_protected.exe`：第一次執行後 30 天內免密碼，超過 30 天後需輸入密碼
 
 免安裝 Python 的執行檔需在目標系統上各自打包，macOS 不能直接產生可正常使用的 Windows `.exe`。
+
+正式 Release 每個平台只保留一份 portable ZIP。CI 會執行 `--check-runtime`，確認 scraper registry、Excel、RSS 與 HTTP 依賴可由封裝成品載入；單檔不得超過 100 MiB，全部成品合計不得超過 220 MiB。中間 artifacts 只保留 1 天。
 
 Windows 原始無密碼版使用時，可把 `UKNewsScraper.exe` 和 `run_windows.bat` 放在同一個資料夾，從檔案總管雙擊 `run_windows.bat`。
 
@@ -86,10 +94,10 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 輸出 Excel 會包含：
 
 - `全部新聞`：抓到的所有機關新聞。
-- `已初步篩選工作表`：分成 `新聞稿` 與 `研究` 兩區。標題或摘要命中觀測領域關鍵字的資料會列入，並附上命中領域與關鍵字。
+- `已初步篩選工作表`：分成 `新聞稿` 與 `研究` 兩區。依標題、摘要、詞組精確度與多重訊號計算相關性，達門檻才列入，並附上命中領域、關鍵字、相關性等級與分數。
 - `國會研究資料`：Commons Library、Lords Library 與 POST research briefings，包含院別、主題、摘要、識別碼、網頁、PDF 及實際抓取來源。
 
-命中關鍵字的資料也會在原始 `全部新聞` 或 `國會研究資料` 工作表中以黃底標記。目前觀測領域包含 `Science & Technology`、AI、資料治理、數位平台、網路安全、半導體與量子技術。
+命中關鍵字的資料會在原始工作表中只標黃實際命中的標題或摘要欄位，並依相關性使用深淺不同的黃色（高相關最深、低相關最淺）。廣義詞（例如 `technology`、`innovation`、`platform`）必須有其他訊號才會納入。目前觀測領域包含 `Science & Technology`、AI、資料治理、數位平台、網路安全、半導體與量子技術。
 
 `新聞連結` 欄位會寫入 Excel 超連結，可直接點開原始新聞頁。GOV.UK 機關 feed 會排除 guidance、publication、transparency data 等文件更新，只保留 `/government/news/` 新聞頁。
 

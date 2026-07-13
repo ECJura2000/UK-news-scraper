@@ -73,11 +73,19 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MAX_WORKERS,
         help=f"併發抓取 worker 數，預設 {DEFAULT_MAX_WORKERS}。",
     )
+    parser.add_argument(
+        "--check-runtime",
+        action="store_true",
+        help="驗證封裝所需模組與 scraper registry，不執行網路抓取。",
+    )
     return parser.parse_args()
 
 
 def main(require_trial_password: bool = False) -> None:
     args = parse_args()
+    if args.check_runtime:
+        _check_runtime()
+        return
     now = datetime.now(timezone.utc)
     if require_trial_password:
         _require_password_after_trial(now)
@@ -95,6 +103,24 @@ def main(require_trial_password: bool = False) -> None:
             _execute_run(args, now, since, until, period_start, period_end, run_id, output)
     except LockUnavailable as exc:
         raise SystemExit(f"[error] {exc}") from exc
+
+
+def _check_runtime() -> None:
+    import bs4
+    import feedparser
+    import openpyxl
+    import requests
+
+    from .scrapers.ministry.registry import build_scrapers
+
+    scrapers = build_scrapers()
+    if not scrapers:
+        raise RuntimeError("scraper registry is empty")
+    dependency_names = (bs4.__name__, feedparser.__name__, openpyxl.__name__, requests.__name__)
+    print(
+        "封裝執行環境檢查通過；"
+        f"scrapers={len(scrapers)} dependencies={','.join(dependency_names)}"
+    )
 
 
 def _execute_run(args, now, since, until, period_start, period_end, run_id, output) -> None:

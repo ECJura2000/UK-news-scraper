@@ -45,6 +45,10 @@ class NewsItem:
     source_feed: str = ""
     matched_topics: list[str] = field(default_factory=list)
     matched_keywords: list[str] = field(default_factory=list)
+    title_matched_keywords: list[str] = field(default_factory=list)
+    summary_matched_keywords: list[str] = field(default_factory=list)
+    relevance_score: int = 0
+    relevance_level: str = ""
 
     @property
     def date_text(self) -> str:
@@ -66,6 +70,10 @@ class ParliamentBriefing:
     fetched_from: str = ""
     matched_topics: list[str] = field(default_factory=list)
     matched_keywords: list[str] = field(default_factory=list)
+    title_matched_keywords: list[str] = field(default_factory=list)
+    summary_matched_keywords: list[str] = field(default_factory=list)
+    relevance_score: int = 0
+    relevance_level: str = ""
 
     @property
     def date_text(self) -> str:

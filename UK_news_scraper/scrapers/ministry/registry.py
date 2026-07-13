@@ -373,11 +373,14 @@ def build_scrapers(agencies: tuple[Agency, ...] = AGENCIES) -> list[AgencyFeedSc
 def apply_topic_filter(items: list[NewsItem]) -> list[NewsItem]:
     filtered: list[NewsItem] = []
     for item in items:
-        haystack = normalize_for_match(f"{item.title} {item.summary}")
-        topics, keywords = _matched_topics_and_keywords(haystack)
-        if topics:
-            item.matched_topics = topics
-            item.matched_keywords = keywords
+        match = _assess_relevance(item.title, item.summary)
+        if match["score"] >= 3:
+            item.matched_topics = match["topics"]
+            item.matched_keywords = match["keywords"]
+            item.title_matched_keywords = match["title_keywords"]
+            item.summary_matched_keywords = match["summary_keywords"]
+            item.relevance_score = match["score"]
+            item.relevance_level = _relevance_level(match["score"])
             filtered.append(item)
 
     return dedupe_items(filtered)
@@ -386,11 +389,14 @@ def apply_topic_filter(items: list[NewsItem]) -> list[NewsItem]:
 def apply_parliament_topic_filter(items: list[ParliamentBriefing]) -> list[ParliamentBriefing]:
     filtered: list[ParliamentBriefing] = []
     for item in items:
-        haystack = normalize_for_match(f"{item.title} {item.summary}")
-        topics, keywords = _matched_topics_and_keywords(haystack)
-        if topics:
-            item.matched_topics = topics
-            item.matched_keywords = keywords
+        match = _assess_relevance(item.title, item.summary)
+        if match["score"] >= 3:
+            item.matched_topics = match["topics"]
+            item.matched_keywords = match["keywords"]
+            item.title_matched_keywords = match["title_keywords"]
+            item.summary_matched_keywords = match["summary_keywords"]
+            item.relevance_score = match["score"]
+            item.relevance_level = _relevance_level(match["score"])
             filtered.append(item)
     return filtered
 
@@ -404,6 +410,41 @@ def _matched_topics_and_keywords(haystack: str) -> tuple[list[str], list[str]]:
             topics.append(rule.name)
             keywords.extend(matched)
     return sorted(set(topics)), sorted(set(keywords), key=str.casefold)
+
+
+# Useful supporting signals that are too broad to qualify an item by themselves.
+_BROAD_KEYWORDS = {
+    "copyright", "innovation", "platform", "resilience", "supply chain", "technology",
+}
+
+
+def _assess_relevance(title: str, summary: str) -> dict[str, object]:
+    title_topics, title_keywords = _matched_topics_and_keywords(normalize_for_match(title))
+    summary_topics, summary_keywords = _matched_topics_and_keywords(normalize_for_match(summary))
+    keywords = sorted(set(title_keywords + summary_keywords), key=str.casefold)
+    topics = sorted(set(title_topics + summary_topics))
+
+    score = sum(2 if keyword.casefold() in _BROAD_KEYWORDS else 4 for keyword in title_keywords)
+    score += sum(1 if keyword.casefold() in _BROAD_KEYWORDS else 3 for keyword in summary_keywords)
+    if len({keyword.casefold() for keyword in keywords}) >= 2:
+        score += 1
+    if len(topics) >= 2:
+        score += 1
+    return {
+        "topics": topics,
+        "keywords": keywords,
+        "title_keywords": title_keywords,
+        "summary_keywords": summary_keywords,
+        "score": score,
+    }
+
+
+def _relevance_level(score: int) -> str:
+    if score >= 8:
+        return "高"
+    if score >= 5:
+        return "中"
+    return "低"
 
 
 def fetch_all_with_status(since: datetime, max_workers: int = DEFAULT_MAX_WORKERS) -> FetchAllResult:

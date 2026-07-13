@@ -15,7 +15,7 @@ from .translation_cache import load_translations, save_translations
 
 
 HEADERS = ("編號", "部會", "新聞日期", "單位分類", "新聞標題", "新聞連結")
-MATCH_HEADERS = HEADERS + ("命中觀測領域", "命中關鍵字")
+MATCH_HEADERS = HEADERS + ("命中觀測領域", "命中關鍵字", "相關性", "分數")
 PARLIAMENT_HEADERS = (
     "資料日期",
     "國家",
@@ -32,9 +32,13 @@ PARLIAMENT_HEADERS = (
     "PDF連結",
     "抓取來源",
 )
-PARLIAMENT_MATCH_HEADERS = PARLIAMENT_HEADERS + ("命中觀測領域", "命中關鍵字")
+PARLIAMENT_MATCH_HEADERS = PARLIAMENT_HEADERS + ("命中觀測領域", "命中關鍵字", "相關性", "分數")
 TITLE_COLUMN = 5
-MATCH_FILL = PatternFill("solid", fgColor="FFFF00")
+RELEVANCE_FILLS = {
+    "高": PatternFill("solid", fgColor="FFD966"),
+    "中": PatternFill("solid", fgColor="FFE699"),
+    "低": PatternFill("solid", fgColor="FFF2CC"),
+}
 SECTION_FILL = PatternFill("solid", fgColor="BDD7EE")
 DEFAULT_TRANSLATION_CONCURRENCY = 4
 
@@ -127,6 +131,8 @@ def _write_parliament_sheet(
                 [
                     "、".join(item.matched_topics),
                     "、".join(item.matched_keywords),
+                    item.relevance_level,
+                    item.relevance_score,
                 ]
             )
         ws.append(row)
@@ -137,12 +143,18 @@ def _write_parliament_sheet(
         translation_row[9] = translations.get(item.summary, "")
         ws.append(translation_row)
 
-        if item.matched_keywords:
-            _fill_rows(ws, english_row_number, chinese_row_number, MATCH_FILL)
+        relevance_fill = _relevance_fill(item.relevance_level)
+        if item.title_matched_keywords:
+            ws.cell(english_row_number, 9).fill = relevance_fill
+        if item.summary_matched_keywords:
+            ws.cell(english_row_number, 10).fill = relevance_fill
+        if include_matches and item.matched_keywords:
+            for column in (15, 16, 17, 18):
+                ws.cell(english_row_number, column).fill = relevance_fill
 
         merged_columns = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14]
         if include_matches:
-            merged_columns.extend((15, 16))
+            merged_columns.extend((15, 16, 17, 18))
         for column in merged_columns:
             ws.merge_cells(
                 start_row=english_row_number,
@@ -215,7 +227,7 @@ def _style_filtered_sheet(ws) -> None:
             cell.font = Font(bold=True)
             cell.fill = PatternFill("solid", fgColor="D9EAF7")
             cell.alignment = Alignment(horizontal="center", vertical="center")
-    widths = (14, 38, 18, 24, 80, 72, 36, 60, 56, 80, 18, 72, 72, 72, 28, 60)
+    widths = (14, 38, 18, 24, 80, 72, 36, 60, 56, 80, 18, 72, 72, 72, 28, 60, 12, 10)
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
     for row in ws.iter_rows(min_row=3):
@@ -256,6 +268,8 @@ def _write_sheet(
                 [
                     "、".join(item.matched_topics),
                     "、".join(item.matched_keywords),
+                    item.relevance_level,
+                    item.relevance_score,
                 ]
             )
         ws.append(row)
@@ -265,9 +279,13 @@ def _write_sheet(
         translation_row[TITLE_COLUMN - 1] = title_translations.get(item.title, "")
         ws.append(translation_row)
 
-        if item.matched_keywords:
-            _fill_rows(ws, english_row_number, chinese_row_number, MATCH_FILL)
-
+        relevance_fill = _relevance_fill(item.relevance_level)
+        if item.title_matched_keywords:
+            ws.cell(english_row_number, TITLE_COLUMN).fill = relevance_fill
+            ws.cell(chinese_row_number, TITLE_COLUMN).fill = relevance_fill
+        if include_matches and item.matched_keywords:
+            for column in (7, 8, 9, 10):
+                ws.cell(english_row_number, column).fill = relevance_fill
         for column in _merged_columns(include_matches):
             ws.merge_cells(
                 start_row=english_row_number,
@@ -280,6 +298,10 @@ def _write_sheet(
         if item.link:
             link_cell.hyperlink = item.link
             link_cell.style = "Hyperlink"
+
+
+def _relevance_fill(level: str) -> PatternFill:
+    return RELEVANCE_FILLS.get(level, RELEVANCE_FILLS["低"])
 
 
 def _translate_titles(items: list[NewsItem]) -> dict[str, str]:

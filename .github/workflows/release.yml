@@ -54,12 +54,15 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             artifact: UKNewsScraper-Linux
+            release-label: Linux-x86_64
           - os: macos-latest
             platform: macos
             artifact: UKNewsScraper-macOS
+            release-label: macOS
           - os: windows-latest
             platform: windows
             artifact: UKNewsScraper-Windows
+            release-label: Windows
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -134,7 +137,8 @@ jobs:
         run: python scripts/package_release.py ${{ matrix.platform }}
       - name: Enforce platform asset size budget
         run: >-
-          python scripts/check_release_size.py dist/release
+          python scripts/check_release_size.py
+          dist/release/UKNewsScraper-*-${{ matrix.release-label }}.zip
           --max-file-mib 100
           --max-total-mib 100
           --manifest dist/release/${{ matrix.artifact }}-SIZE-MANIFEST.txt

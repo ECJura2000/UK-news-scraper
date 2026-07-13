@@ -15,7 +15,9 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
 
-    files = sorted(path for path in args.root.rglob("*") if path.is_file())
+    files = [args.root] if args.root.is_file() else sorted(
+        path for path in args.root.rglob("*") if path.is_file()
+    )
     if not files:
         parser.error(f"no release files found under {args.root}")
 
@@ -29,14 +31,18 @@ def main() -> int:
         "",
     ]
     lines.extend(
-        f"{path.stat().st_size}\t{path.stat().st_size / MIB:.2f} MiB\t{path.relative_to(args.root)}"
+        f"{path.stat().st_size}\t{path.stat().st_size / MIB:.2f} MiB\t"
+        f"{path.name if args.root.is_file() else path.relative_to(args.root)}"
         for path in files
     )
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
     args.manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     if oversized:
-        names = ", ".join(str(path.relative_to(args.root)) for path in oversized)
+        names = ", ".join(
+            path.name if args.root.is_file() else str(path.relative_to(args.root))
+            for path in oversized
+        )
         raise RuntimeError(f"release files exceed {args.max_file_mib} MiB: {names}")
     if total_bytes > args.max_total_mib * MIB:
         raise RuntimeError(

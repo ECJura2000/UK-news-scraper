@@ -136,6 +136,7 @@ jobs:
       - name: Create portable archive
         run: python scripts/package_release.py ${{ matrix.platform }}
       - name: Enforce platform asset size budget
+        shell: bash
         run: >-
           python scripts/check_release_size.py
           dist/release/UKNewsScraper-*-${{ matrix.release-label }}.zip

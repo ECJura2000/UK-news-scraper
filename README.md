@@ -46,6 +46,12 @@ Windows：
 build_windows.bat
 ```
 
+Linux：
+
+```bash
+./build_linux.sh
+```
+
 macOS 會產生：
 
 - `dist/UKNewsScraper`：原始無密碼版
@@ -57,6 +63,8 @@ Windows 會產生：
 - `dist\UKNewsScraper_protected.exe`：第一次執行後 30 天內免密碼，超過 30 天後需輸入密碼
 
 免安裝 Python 的執行檔需在目標系統上各自打包，macOS 不能直接產生可正常使用的 Windows `.exe`。
+
+正式 Release 每個平台只保留一份 portable ZIP。CI 會執行 `--check-runtime`，確認 scraper registry、Excel、RSS 與 HTTP 依賴可由封裝成品載入；單檔不得超過 100 MiB，全部成品合計不得超過 220 MiB。中間 artifacts 只保留 1 天。
 
 Windows 原始無密碼版使用時，可把 `UKNewsScraper.exe` 和 `run_windows.bat` 放在同一個資料夾，從檔案總管雙擊 `run_windows.bat`。
 

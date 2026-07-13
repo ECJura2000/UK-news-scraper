@@ -10,5 +10,9 @@ release/
 output/
 新聞放置區/
 *.xlsx
+*.zip
+*.tar.gz
+*.dmg
+*.exe
 *.run.json
 .uknews_first_run

@@ -42,7 +42,7 @@ jobs:
             test "$GITHUB_REF_NAME" = "v${version}"
           fi
           python -m ruff check .
-          python -m compileall -q UK_news_scraper run_scraper.py run_scraper_protected.py scripts/package_release.py
+          python -m compileall -q UK_news_scraper run_scraper.py run_scraper_protected.py scripts/package_release.py scripts/check_release_size.py
           python -m pytest -q
 
   build:
@@ -86,8 +86,8 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          ./dist/UKNewsScraper --help > dist/smoke-standard.txt
-          ./dist/UKNewsScraper_protected --help > dist/smoke-protected.txt
+          ./dist/UKNewsScraper --check-runtime > dist/smoke-standard.txt
+          ./dist/UKNewsScraper_protected --check-runtime > dist/smoke-protected.txt
           test -s dist/smoke-standard.txt
           test -s dist/smoke-protected.txt
       - name: Smoke-test Windows executables
@@ -103,7 +103,7 @@ jobs:
             $stderr = Join-Path $PWD "dist\smoke-$($test.Name)-stderr.txt"
             $process = Start-Process `
               -FilePath (Resolve-Path $test.Executable).Path `
-              -ArgumentList "--help" `
+              -ArgumentList "--check-runtime" `
               -Wait `
               -PassThru `
               -RedirectStandardOutput $stdout `
@@ -115,7 +115,7 @@ jobs:
               throw "$($test.Name) executable exited with code $($process.ExitCode)"
             }
             if (-not (Test-Path $stdout) -or (Get-Item $stdout).Length -eq 0) {
-              throw "$($test.Name) executable produced no help output"
+              throw "$($test.Name) executable produced no runtime-check output"
             }
           }
       - name: Upload Windows smoke diagnostics
@@ -129,17 +129,23 @@ jobs:
             build/UKNewsScraper/warn-UKNewsScraper.txt
             build/UKNewsScraper_protected/warn-UKNewsScraper_protected.txt
           if-no-files-found: warn
-          retention-days: 7
-      - name: Create portable archive and SHA-256
+          retention-days: 1
+      - name: Create portable archive
         run: python scripts/package_release.py ${{ matrix.platform }}
+      - name: Enforce platform asset size budget
+        run: >-
+          python scripts/check_release_size.py dist/release
+          --max-file-mib 100
+          --max-total-mib 100
+          --manifest dist/release/${{ matrix.artifact }}-SIZE-MANIFEST.txt
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: |
             dist/release/*.zip
-            dist/release/*.sha256
+            dist/release/*-SIZE-MANIFEST.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
   publish:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
@@ -171,7 +177,18 @@ jobs:
       - name: Verify release assets
         run: |
           find release-assets -maxdepth 1 -type f -print
-          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 6
+          test "$(find release-assets -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 3
+      - name: Create consolidated checksum and enforce release size budget
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum *.zip > UKNewsScraper-${{ steps.release.outputs.tag }}-SHA256SUMS.txt
+          rm -f *-SIZE-MANIFEST.txt
+          cd ..
+          python scripts/check_release_size.py release-assets \
+            --max-file-mib 100 \
+            --max-total-mib 220 \
+            --manifest release-assets/UKNewsScraper-${{ steps.release.outputs.tag }}-SIZE-MANIFEST.txt
       - name: Publish release when absent
         env:
           GH_TOKEN: ${{ github.token }}
@@ -193,4 +210,4 @@ jobs:
             "${tag_args[@]}" \
             --generate-notes \
             --title "UK News Scraper $RELEASE_TAG" \
-            --notes "此版本提供不需要安裝 Python 的 Windows、macOS 與 Linux x86_64 可攜版。下載與作業系統相符的 ZIP 並解壓縮；Windows 可雙擊 run_windows.bat，macOS 與 Linux 依 ZIP 內 README.txt 執行。"
+            --notes "此版本提供不需要安裝 Python 的 Windows、macOS 與 Linux x86_64 可攜版。三平台成品均通過完整 runtime registry 檢查，並受單檔 100 MiB、總量 220 MiB 容量閘門保護。"

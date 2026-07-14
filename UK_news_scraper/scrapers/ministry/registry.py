@@ -46,6 +46,14 @@ ELECTORAL_COMMISSION_GOOGLE_NEWS_EXCLUDED_TITLES = {
     "living abroad",
     "resources for media",
 }
+OFCOM_GOOGLE_NEWS_QUERIES = (
+    "site:ofcom.org.uk Ofcom",
+    'site:ofcom.org.uk "Ofcom statement"',
+    'site:ofcom.org.uk "Ofcom consultation"',
+    'site:ofcom.org.uk "Ofcom update"',
+    'site:ofcom.org.uk "Ofcom news"',
+    'site:ofcom.org.uk "Ofcom report"',
+)
 
 
 class AgencyFeedScraper(Scraper):
@@ -89,7 +97,7 @@ class AgencyFeedScraper(Scraper):
             successful_sources += html_successful
             items.extend(html_items)
 
-        if attempted_sources and not successful_sources and self.agency.short_name in (
+        if not items and self.agency.short_name in (
             "Ofcom",
             "NPSA",
             "Electoral Commission",
@@ -302,11 +310,26 @@ class AgencyFeedScraper(Scraper):
         )
 
     def _fetch_google_news_fallback(self, since: datetime) -> list[NewsItem]:
-        query_text = {
-            "Ofcom": "site:ofcom.org.uk Ofcom",
-            "NPSA": "site:npsa.gov.uk NPSA",
-            "Electoral Commission": "site:electoralcommission.org.uk Electoral Commission",
-        }[self.agency.short_name]
+        query_texts = self._google_news_query_texts()
+        items: list[NewsItem] = []
+        for query_text in query_texts:
+            items.extend(self._fetch_google_news_query(query_text, since))
+        print(
+            f"[info] {self.agency.short_name} 改用 Google News RSS 備援"
+            f"（{len(query_texts)} 組查詢）：{len(items)} 筆"
+        )
+        return dedupe_items(items)
+
+    def _google_news_query_texts(self) -> tuple[str, ...]:
+        if self.agency.short_name == "Ofcom":
+            return OFCOM_GOOGLE_NEWS_QUERIES
+        if self.agency.short_name == "NPSA":
+            return ("site:npsa.gov.uk NPSA",)
+        if self.agency.short_name == "Electoral Commission":
+            return ("site:electoralcommission.org.uk Electoral Commission",)
+        return ()
+
+    def _fetch_google_news_query(self, query_text: str, since: datetime) -> list[NewsItem]:
         query = quote(query_text)
         feed_url = f"https://news.google.com/rss/search?q={query}&hl=en-GB&gl=GB&ceid=GB:en"
         feed = parse_feed(feed_url)
@@ -348,8 +371,7 @@ class AgencyFeedScraper(Scraper):
                     summary=clean_text(getattr(entry, "summary", "")),
                 )
             )
-        print(f"[info] {self.agency.short_name} 官方站受 Cloudflare 阻擋，改用 Google News RSS 備援：{len(items)} 筆")
-        return dedupe_items(items)
+        return items
 
 
 def _is_electoral_commission_google_news_title(title: str) -> bool:
@@ -414,7 +436,7 @@ def _matched_topics_and_keywords(haystack: str) -> tuple[list[str], list[str]]:
 
 # Useful supporting signals that are too broad to qualify an item by themselves.
 _BROAD_KEYWORDS = {
-    "copyright", "innovation", "platform", "resilience", "supply chain", "technology",
+    "copyright", "evaluation", "innovation", "platform", "resilience", "supply chain", "technology",
 }
 
 

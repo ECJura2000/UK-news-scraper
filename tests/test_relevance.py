@@ -4,8 +4,8 @@ from UK_news_scraper.models import NewsItem
 from UK_news_scraper.scrapers.ministry.registry import apply_topic_filter
 
 
-def _item(title: str, summary: str = "") -> NewsItem:
-    return NewsItem("Agency", "Agency", "A", title, "https://example.com", datetime.now(timezone.utc), summary)
+def _item(title: str, summary: str = "", link: str = "https://example.com") -> NewsItem:
+    return NewsItem("Agency", "Agency", "A", title, link, datetime.now(timezone.utc), summary)
 
 
 def test_broad_keyword_alone_is_not_relevant():
@@ -24,3 +24,31 @@ def test_multiple_broad_signals_can_reach_threshold():
     item = _item("Technology platform launched")
     assert apply_topic_filter([item]) == [item]
     assert set(item.title_matched_keywords) == {"platform", "technology"}
+
+
+def test_consolidated_policy_keywords_are_weighted_and_explainable():
+    items = [
+        _item(
+            "AI Security Institute publishes evaluation update",
+            "Frontier AI and AI and data protection.",
+            "https://example.com/ai",
+        ),
+        _item(
+            "Open Government Data Framework refreshed",
+            "Updated data reuse policy and One Login guidance.",
+            "https://example.com/data",
+        ),
+        _item(
+            "Cyber Essentials guidance for supply chains",
+            "SBOM and critical infrastructure protection.",
+            "https://example.com/cyber",
+        ),
+    ]
+
+    filtered = apply_topic_filter(items)
+
+    assert len(filtered) == 3
+    assert all(item.relevance_score >= 3 for item in filtered)
+    assert any("AI" in item.matched_topics for item in filtered)
+    assert any("資料治理/隱私/數位身份" in item.matched_topics for item in filtered)
+    assert any("網路安全/資安" in item.matched_topics for item in filtered)

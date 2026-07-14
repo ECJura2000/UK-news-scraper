@@ -41,6 +41,10 @@ RELEVANCE_FILLS = {
 }
 SECTION_FILL = PatternFill("solid", fgColor="BDD7EE")
 DEFAULT_TRANSLATION_CONCURRENCY = 4
+MANUAL_TITLE_TRANSLATIONS = {
+    "Building more resilient CNI: what industry pen testers told us": "打造更具韌性的關鍵國家基礎設施：產業滲透測試人員的回饋",
+    "Cyber Shield: The path to an agentic AI future for cyber defence": "Cyber Shield：邁向具代理式 AI 的網路防禦未來",
+}
 
 
 def export_news(
@@ -53,6 +57,7 @@ def export_news(
     path = Path(output_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     title_translations = _translate_titles([*all_items, *filtered_items])
+    _ensure_translations_present(title_translations, [*all_items, *filtered_items])
     parliament_items = parliament_items or []
     filtered_parliament_items = filtered_parliament_items or []
     parliament_translations = _translate_texts(
@@ -309,17 +314,30 @@ def _translate_titles(items: list[NewsItem]) -> dict[str, str]:
     return _translate_texts(unique_titles, content_label="新聞標題")
 
 
+def _ensure_translations_present(translations: dict[str, str], items: list[NewsItem]) -> None:
+    untranslated = [
+        item.title
+        for item in items
+        if item.title
+        and _normalize_title(translations.get(item.title, "")) == _normalize_title(item.title)
+    ]
+    if untranslated:
+        sample = "；".join(dict.fromkeys(untranslated))
+        raise RuntimeError(f"新聞標題翻譯失敗或未變更：{sample}")
+
+
 def _translate_texts(texts: list[str], content_label: str) -> dict[str, str]:
     unique_titles = list(dict.fromkeys(text for text in texts if text))
     if not unique_titles:
         return {}
 
     cached = load_translations()
-    translations = {
-        title: cached[title]
-        for title in unique_titles
-        if cached.get(title)
-    }
+    translations: dict[str, str] = {}
+    for title in unique_titles:
+        cached_translation = cached.get(title, "")
+        resolved = _translation_or_fallback(title, cached_translation) if cached_translation else ""
+        if resolved and _normalize_title(resolved) != _normalize_title(title):
+            translations[title] = resolved
     missing = [title for title in unique_titles if title not in translations]
     if not missing:
         return translations
@@ -384,7 +402,8 @@ def _translation_or_fallback(title: str, translated_title: str) -> str:
     if translated_title and _normalize_title(translated_title) != _normalize_title(title):
         return translated_title
     return (
-        _translate_with_deep_translator(title)
+        MANUAL_TITLE_TRANSLATIONS.get(title.strip(), "")
+        or _translate_with_deep_translator(title)
         or _translate_election_statement_title(title)
         or translated_title
     )
@@ -398,6 +417,9 @@ def _translate_titles_with_deep_translator(unique_titles: list[str]) -> dict[str
 
 
 def _translate_with_deep_translator(title: str) -> str:
+    manual = MANUAL_TITLE_TRANSLATIONS.get(title.strip())
+    if manual:
+        return manual
     try:
         from deep_translator import GoogleTranslator
     except ImportError:

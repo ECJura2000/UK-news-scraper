@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from html import escape
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 import feedparser
 from bs4 import BeautifulSoup
@@ -10,6 +12,7 @@ from UK_news_scraper.scrapers.ministry.registry import (
     AgencyFeedScraper,
     AgencyFetchStatus,
     FetchAllResult,
+    OFCOM_GOOGLE_NEWS_QUERIES,
     _health_warning,
     _is_electoral_commission_google_news_title,
 )
@@ -125,6 +128,42 @@ def test_electoral_commission_google_news_filter_removes_database_noise():
     )
     assert not _is_electoral_commission_google_news_title("Search criteria")
     assert not _is_electoral_commission_google_news_title("Donation summary")
+
+
+def test_ofcom_google_news_fallback_uses_multiple_queries(monkeypatch):
+    agency = Agency("英國通訊管理局", "Office of Communications", "Ofcom", "https://example.com")
+    scraper = AgencyFeedScraper(agency)
+    since = datetime(2026, 6, 21, tzinfo=timezone.utc)
+    calls: list[str] = []
+
+    def make_feed(item_title: str | None = None):
+        if item_title is None:
+            xml = "<?xml version='1.0' encoding='UTF-8'?><rss version='2.0'><channel></channel></rss>"
+        else:
+            xml = (
+                "<?xml version='1.0' encoding='UTF-8'?><rss version='2.0'><channel><item>"
+                f"<title>{escape(item_title)}</title>"
+                "<link>https://news.google.com/rss/articles/test</link>"
+                "<pubDate>Thu, 02 Jul 2026 07:00:00 GMT</pubDate>"
+                "<description>summary</description></item></channel></rss>"
+            )
+        return feedparser.parse(xml)
+
+    def fake_parse_feed(url: str):
+        calls.append(url)
+        query = parse_qs(urlparse(url).query).get("q", [""])[0]
+        query_text = unquote(query)
+        if query_text == 'site:ofcom.org.uk "Ofcom consultation"':
+            return make_feed("Ofcom consultation update - www.ofcom.org.uk")
+        return make_feed()
+
+    monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.parse_feed", fake_parse_feed)
+
+    items = scraper._fetch_google_news_fallback(since)
+
+    assert len(calls) == len(OFCOM_GOOGLE_NEWS_QUERIES)
+    assert len(items) == 1
+    assert items[0].title == "Ofcom consultation update"
 
 
 def test_low_frequency_source_does_not_warn_for_zero_items():

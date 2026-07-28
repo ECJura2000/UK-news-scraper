@@ -47,6 +47,11 @@ class NewsItem:
     matched_keywords: list[str] = field(default_factory=list)
     title_matched_keywords: list[str] = field(default_factory=list)
     summary_matched_keywords: list[str] = field(default_factory=list)
+    core_matched_keywords: list[str] = field(default_factory=list)
+    general_matched_keywords: list[str] = field(default_factory=list)
+    supporting_matched_keywords: list[str] = field(default_factory=list)
+    title_keyword_strengths: dict[str, str] = field(default_factory=dict)
+    summary_keyword_strengths: dict[str, str] = field(default_factory=dict)
     relevance_score: int = 0
     relevance_level: str = ""
 
@@ -72,6 +77,11 @@ class ParliamentBriefing:
     matched_keywords: list[str] = field(default_factory=list)
     title_matched_keywords: list[str] = field(default_factory=list)
     summary_matched_keywords: list[str] = field(default_factory=list)
+    core_matched_keywords: list[str] = field(default_factory=list)
+    general_matched_keywords: list[str] = field(default_factory=list)
+    supporting_matched_keywords: list[str] = field(default_factory=list)
+    title_keyword_strengths: dict[str, str] = field(default_factory=dict)
+    summary_keyword_strengths: dict[str, str] = field(default_factory=dict)
     relevance_score: int = 0
     relevance_level: str = ""
 

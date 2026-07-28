@@ -38,6 +38,7 @@ def package(platform_name: str) -> Path:
             dist_dir / "UKNewsScraper_protected.exe",
             PROJECT_DIR / "run_windows.bat",
             PROJECT_DIR / "run_windows_protected.bat",
+            PROJECT_DIR / "run_windows_ui.bat",
         )
     else:
         required = (
@@ -57,7 +58,8 @@ def package(platform_name: str) -> Path:
 
 Python is not required.
 
-Recommended: double-click run_windows.bat and enter a date range.
+Recommended desktop UI: double-click run_windows_ui.bat.
+Command line mode: double-click run_windows.bat and enter a date range.
 You may also run UKNewsScraper.exe directly from Command Prompt or PowerShell.
 The protected edition is optional and uses the existing 30-day trial/password behavior.
 """
@@ -69,7 +71,8 @@ Python is not required.
 
 1. Open a terminal in this folder.
 2. Run: chmod +x UKNewsScraper UKNewsScraper_protected
-3. Run: {executable}
+3. Desktop UI: {executable} --ui
+4. Command line: {executable}
 
 Examples:
   {executable} 30

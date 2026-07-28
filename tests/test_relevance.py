@@ -1,6 +1,13 @@
 from datetime import datetime, timezone
 
 from UK_news_scraper.models import NewsItem
+from UK_news_scraper.profiles import (
+    FilterProfile,
+    KeywordDefinition,
+    KeywordStrength,
+    ProfileTopic,
+)
+from UK_news_scraper.relevance import assess_relevance
 from UK_news_scraper.scrapers.ministry.registry import apply_topic_filter
 
 
@@ -52,3 +59,55 @@ def test_consolidated_policy_keywords_are_weighted_and_explainable():
     assert any("AI" in item.matched_topics for item in filtered)
     assert any("資料治理/隱私/數位身份" in item.matched_topics for item in filtered)
     assert any("網路安全/資安" in item.matched_topics for item in filtered)
+
+
+def test_custom_profile_uses_three_strength_levels_and_configured_threshold():
+    profile = FilterProfile(
+        profile_id="custom-policy",
+        name="Custom policy",
+        description="",
+        version=1,
+        selected_sources=("DSIT",),
+        topics=(
+            ProfileTopic(
+                "Policy",
+                (
+                    KeywordDefinition("alpha framework", KeywordStrength.CORE),
+                    KeywordDefinition("beta rule", KeywordStrength.GENERAL),
+                    KeywordDefinition("technology", KeywordStrength.SUPPORTING),
+                ),
+            ),
+        ),
+        minimum_score=10,
+    )
+
+    assessment = assess_relevance(
+        "Alpha framework and technology",
+        "The beta rule applies.",
+        profile,
+    )
+
+    assert assessment.score == 12
+    assert assessment.included is True
+    assert assessment.core_keywords == ("alpha framework",)
+    assert assessment.general_keywords == ("beta rule",)
+    assert assessment.supporting_keywords == ("technology",)
+
+
+def test_supporting_keyword_alone_can_be_excluded_by_threshold():
+    profile = FilterProfile(
+        profile_id="support-test",
+        name="Support test",
+        description="",
+        version=1,
+        selected_sources=("DSIT",),
+        topics=(
+            ProfileTopic(
+                "Policy",
+                (KeywordDefinition("technology", KeywordStrength.SUPPORTING),),
+            ),
+        ),
+        minimum_score=3,
+    )
+
+    assert assess_relevance("Technology update", "", profile).included is False

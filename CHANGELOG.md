@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 - 2026-07-28
+
+- Added a high-DPI desktop research workspace with Gregorian and ROC date controls.
+- Added reusable filter profiles, selectable UK sources, and three keyword-strength levels.
+- Added configurable relevance scoring with exact keyword highlighting in the desktop results.
+- Added Gregorian or ROC Excel date formatting and reproducible filter settings in each workbook.
+- Changed default report names to `{start}-{end}_UK新聞查詢.xlsx`.
+- Added a Windows UI launcher while preserving the existing CLI and delivery-registry workflow.
+
 ## 1.1.1 - 2026-07-13
 
 - Added weighted relevance scoring and deterministic Excel highlighting.

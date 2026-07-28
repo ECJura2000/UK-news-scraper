@@ -12,11 +12,25 @@ Deployment, source maintenance, and delivery recovery are documented in [docs/MA
 
 ## 使用方式
 
+### 桌面介面
+
+```bash
+python3 -m UK_news_scraper --ui
+```
+
+桌面介面可建立主題設定檔、選擇 UK 機關與國會來源、設定核心／一般／
+輔助關鍵詞、使用西元或民國起訖日期，並在背景完成抓取與 Excel 匯出。
+Windows 可攜版可直接雙擊 `run_windows_ui.bat`。
+
+### 命令列
+
 ```bash
 python3 -m UK_news_scraper
 ```
 
-預設會依 `Asia/Taipei` 日曆日回推 14 天。從原始碼執行時輸出到專案的 `新聞放置區/`；封裝版輸出到桌面的 `UK新聞抓取/新聞放置區/`。同一天內重跑會使用相同日期區間與檔名。
+預設會依 `Asia/Taipei` 日曆日回推 14 天。從原始碼執行時輸出到專案的
+`新聞放置區/`；封裝版輸出到桌面的 `UK新聞抓取/新聞放置區/`。預設檔名
+為 `{起始日YYYYMMDD}-{結束日YYYYMMDD}_UK新聞查詢.xlsx`。
 
 可用 `UK_NEWS_OUTPUT_DIR` 覆寫預設輸出資料夾，例如：
 
@@ -80,6 +94,7 @@ Windows 防盜版版使用時，可把 `UKNewsScraper_protected.exe` 和 `run_wi
 python3 -m UK_news_scraper --days 14 --output output/本週英國新聞.xlsx
 python3 -m UK_news_scraper --since 2026-05-01
 python3 -m UK_news_scraper --workers 8
+python3 -m UK_news_scraper --profile digital-health --excel-calendar roc
 ```
 
 也可以直接在指令後面輸入搜尋期間：
@@ -95,7 +110,7 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 - `20160501`：從 2016-05-01 抓到現在。
 - `20160501～20160515`：只保留 2016-05-01 到 2016-05-15 的新聞，結束日當天會包含在內。
 - 全形 `～`、半形 `~`、前後半形或全形空格都可以解析。
-- 若未指定 `--output`，原始碼執行會輸出到專案的 `新聞放置區`；封裝版仍使用桌面的 `UK新聞抓取/新聞放置區`。檔名會自動帶入搜尋期間，例如 `英國相關機關爬蟲新聞（20260419-20260519）.xlsx`。
+- 若未指定 `--output`，原始碼執行會輸出到專案的 `新聞放置區`；封裝版仍使用桌面的 `UK新聞抓取/新聞放置區`。檔名會自動帶入搜尋期間，例如 `20260419-20260519_UK新聞查詢.xlsx`。
 
 輸出 Excel 會包含：
 

@@ -10,16 +10,17 @@ from bs4 import BeautifulSoup
 from ...config import (
     AGENCIES,
     DEFAULT_MAX_WORKERS,
-    TOPIC_RULES,
 )
 from ...http.async_client import get_text
 from ...errors import DownloadError, UKNewsError
 from ...models import Agency, NewsItem, ParliamentBriefing
+from ...profiles import FilterProfile
+from ...relevance import apply_profile_filter
 from ...rss import discover_feed_urls, parse_feed
 from ..base import Scraper
 from .utils.date import parse_datetime_text, parse_feed_datetime
 from .utils.dedupe import dedupe_items
-from .utils.text import clean_text, keyword_in_text, normalize_for_match
+from .utils.text import clean_text
 from .status import AgencyFetchStatus, FetchAllResult, health_warning as _health_warning, newest_published_at as _newest_published_at
 
 __all__ = [
@@ -392,93 +393,42 @@ def build_scrapers(agencies: tuple[Agency, ...] = AGENCIES) -> list[AgencyFeedSc
     return [AgencyFeedScraper(agency) for agency in agencies]
 
 
-def apply_topic_filter(items: list[NewsItem]) -> list[NewsItem]:
-    filtered: list[NewsItem] = []
-    for item in items:
-        match = _assess_relevance(item.title, item.summary)
-        if match["score"] >= 3:
-            item.matched_topics = match["topics"]
-            item.matched_keywords = match["keywords"]
-            item.title_matched_keywords = match["title_keywords"]
-            item.summary_matched_keywords = match["summary_keywords"]
-            item.relevance_score = match["score"]
-            item.relevance_level = _relevance_level(match["score"])
-            filtered.append(item)
-
-    return dedupe_items(filtered)
+def apply_topic_filter(
+    items: list[NewsItem],
+    profile: FilterProfile | None = None,
+) -> list[NewsItem]:
+    return dedupe_items(apply_profile_filter(items, profile))
 
 
-def apply_parliament_topic_filter(items: list[ParliamentBriefing]) -> list[ParliamentBriefing]:
-    filtered: list[ParliamentBriefing] = []
-    for item in items:
-        match = _assess_relevance(item.title, item.summary)
-        if match["score"] >= 3:
-            item.matched_topics = match["topics"]
-            item.matched_keywords = match["keywords"]
-            item.title_matched_keywords = match["title_keywords"]
-            item.summary_matched_keywords = match["summary_keywords"]
-            item.relevance_score = match["score"]
-            item.relevance_level = _relevance_level(match["score"])
-            filtered.append(item)
-    return filtered
+def apply_parliament_topic_filter(
+    items: list[ParliamentBriefing],
+    profile: FilterProfile | None = None,
+) -> list[ParliamentBriefing]:
+    return apply_profile_filter(items, profile)
 
 
-def _matched_topics_and_keywords(haystack: str) -> tuple[list[str], list[str]]:
-    topics: list[str] = []
-    keywords: list[str] = []
-    for rule in TOPIC_RULES:
-        matched = [keyword for keyword in rule.keywords if keyword_in_text(keyword, haystack)]
-        if matched:
-            topics.append(rule.name)
-            keywords.extend(matched)
-    return sorted(set(topics)), sorted(set(keywords), key=str.casefold)
-
-
-# Useful supporting signals that are too broad to qualify an item by themselves.
-_BROAD_KEYWORDS = {
-    "copyright", "evaluation", "innovation", "platform", "resilience", "supply chain", "technology",
-}
-
-
-def _assess_relevance(title: str, summary: str) -> dict[str, object]:
-    title_topics, title_keywords = _matched_topics_and_keywords(normalize_for_match(title))
-    summary_topics, summary_keywords = _matched_topics_and_keywords(normalize_for_match(summary))
-    keywords = sorted(set(title_keywords + summary_keywords), key=str.casefold)
-    topics = sorted(set(title_topics + summary_topics))
-
-    score = sum(2 if keyword.casefold() in _BROAD_KEYWORDS else 4 for keyword in title_keywords)
-    score += sum(1 if keyword.casefold() in _BROAD_KEYWORDS else 3 for keyword in summary_keywords)
-    if len({keyword.casefold() for keyword in keywords}) >= 2:
-        score += 1
-    if len(topics) >= 2:
-        score += 1
-    return {
-        "topics": topics,
-        "keywords": keywords,
-        "title_keywords": title_keywords,
-        "summary_keywords": summary_keywords,
-        "score": score,
-    }
-
-
-def _relevance_level(score: int) -> str:
-    if score >= 8:
-        return "高"
-    if score >= 5:
-        return "中"
-    return "低"
-
-
-def fetch_all_with_status(since: datetime, max_workers: int = DEFAULT_MAX_WORKERS) -> FetchAllResult:
+def fetch_all_with_status(
+    since: datetime,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+    agencies: tuple[Agency, ...] | None = None,
+) -> FetchAllResult:
     from .orchestration import fetch_all_with_status as orchestrated_fetch_all_with_status
 
-    return orchestrated_fetch_all_with_status(since, max_workers=max_workers)
+    return orchestrated_fetch_all_with_status(
+        since,
+        max_workers=max_workers,
+        agencies=agencies,
+    )
 
 
-def fetch_all(since: datetime, max_workers: int = DEFAULT_MAX_WORKERS) -> list[NewsItem]:
+def fetch_all(
+    since: datetime,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+    agencies: tuple[Agency, ...] | None = None,
+) -> list[NewsItem]:
     from .orchestration import fetch_all as orchestrated_fetch_all
 
-    return orchestrated_fetch_all(since, max_workers=max_workers)
+    return orchestrated_fetch_all(since, max_workers=max_workers, agencies=agencies)
 
 
 def _date_from_text(text: str, pattern: str) -> datetime | None:

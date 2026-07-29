@@ -42,7 +42,7 @@ jobs:
             test "$GITHUB_REF_NAME" = "v${version}"
           fi
           python -m ruff check .
-          python -m compileall -q UK_news_scraper run_scraper.py run_scraper_protected.py scripts/package_release.py scripts/check_release_size.py
+          python -m compileall -q UK_news_scraper run_scraper.py run_scraper_protected.py scripts/package_release.py scripts/package_source.py scripts/check_release_size.py
           python -m pytest -q
 
   build:
@@ -179,10 +179,16 @@ jobs:
           pattern: UKNewsScraper-*
           path: release-assets
           merge-multiple: true
+      - name: Create tracked source archive
+        run: >-
+          python scripts/package_source.py
+          --output-dir release-assets
+          --ref "$GITHUB_SHA"
       - name: Verify release assets
         run: |
           find release-assets -maxdepth 1 -type f -print
-          test "$(find release-assets -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 3
+          test "$(find release-assets -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 4
+          test "$(find release-assets -maxdepth 1 -name '*-Source.zip' -type f | wc -l)" -eq 1
       - name: Create consolidated checksum and enforce release size budget
         shell: bash
         run: |
@@ -215,4 +221,4 @@ jobs:
             "${tag_args[@]}" \
             --generate-notes \
             --title "UK News Scraper $RELEASE_TAG" \
-            --notes "此版本提供不需要安裝 Python 的 Windows、macOS 與 Linux x86_64 可攜版。三平台成品均通過完整 runtime registry 檢查，並受單檔 100 MiB、總量 220 MiB 容量閘門保護。"
+            --notes "此版本提供不需要安裝 Python 的 Windows、macOS 與 Linux x86_64 可攜版，以及可交給 AI 工具安裝與執行的 Source ZIP。所有下載檔均納入 SHA-256 清單，並受單檔 100 MiB、總量 220 MiB 容量閘門保護。"

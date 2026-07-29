@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1 - 2026-07-29
+
+- Added score/date result filters, sortable columns, visible counts, and deterministic core-first highlight priority.
+- Added cooperative cancellation, safe close behavior, and failed-source-only retry with successful-data preservation.
+- Added recent-run history for reopening workbooks and run summaries.
+- Added profile backups, legacy migration, corrupt-file quarantine, import conflict confirmation, and default restoration.
+- Split reusable desktop components and result-state logic into independently tested modules.
+
 ## 1.2.0 - 2026-07-28
 
 - Added a high-DPI desktop research workspace with Gregorian and ROC date controls.

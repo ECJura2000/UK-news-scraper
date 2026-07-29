@@ -32,7 +32,12 @@ from .scrapers.parliament import ParliamentFetchResult, fetch_parliament_briefin
 
 
 ProgressCallback = Callable[["ProgressEvent"], None]
+CancelCallback = Callable[[], bool]
 LOCAL_TIMEZONE = ZoneInfo(DEFAULT_TIMEZONE)
+
+
+class RunCancelled(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,8 @@ class RunRequest:
     workers: int = DEFAULT_MAX_WORKERS
     profile: FilterProfile | None = None
     export_options: ExportOptionsRequest = ExportOptionsRequest()
+    retry_source_ids: tuple[str, ...] = ()
+    base_result: RunResult | None = None
 
 
 @dataclass(frozen=True)
@@ -75,14 +82,21 @@ class RunResult:
 def execute_run(
     request: RunRequest,
     progress: ProgressCallback | None = None,
+    cancelled: CancelCallback | None = None,
 ) -> RunResult:
     if request.period_end < request.period_start:
         raise ValueError("結束日期不得早於開始日期")
     if request.workers < 1:
         raise ValueError("worker 數必須大於等於 1")
+    _check_cancelled(cancelled)
 
     active_profile = request.profile or default_profile()
-    selected_source_ids = set(active_profile.selected_sources)
+    retry_source_ids = set(request.retry_source_ids)
+    if retry_source_ids and request.base_result is None:
+        raise ValueError("重試異常來源需要前次執行結果")
+    if retry_source_ids - set(active_profile.selected_sources):
+        raise ValueError("重試來源必須包含在目前設定檔中")
+    selected_source_ids = retry_source_ids or set(active_profile.selected_sources)
     selected_agencies = tuple(
         agency for agency in AGENCIES if agency.short_name in selected_source_ids
     )
@@ -108,33 +122,48 @@ def execute_run(
     lock_path = output.parent / f".{run_id}.lock"
 
     with exclusive_lock(lock_path):
-        _emit(progress, "fetch_news", "正在抓取已選取的 UK 新聞來源", 1, 5)
+        action = "重新抓取異常來源" if retry_source_ids else "抓取已選取的 UK 新聞來源"
+        _emit(progress, "fetch_news", f"正在{action}", 1, 5)
         fetch_result = fetch_all_with_status(
             since,
             max_workers=request.workers,
             agencies=selected_agencies,
         )
-        all_items = dedupe_news_items(_filter_until(fetch_result.items, until))
+        _check_cancelled(cancelled)
+        fetched_items = _filter_until(fetch_result.items, until)
+        all_items = _merge_news_items(
+            request.base_result,
+            fetched_items,
+            retry_source_ids,
+        )
 
         _emit(progress, "filter_news", "正在套用主題與關鍵詞設定", 2, 5)
         filtered_items = apply_topic_filter(all_items, active_profile)
+        _check_cancelled(cancelled)
 
         if include_parliament:
             _emit(progress, "fetch_parliament", "正在抓取 UK Parliament 研究資料", 3, 5)
             parliament_result = fetch_parliament_briefings(since)
-            parliament_items = _filter_until(parliament_result.items, until)
-            filtered_parliament_items = apply_parliament_topic_filter(
-                parliament_items,
-                active_profile,
-            )
+            fetched_parliament_items = _filter_until(parliament_result.items, until)
         else:
             parliament_result = ParliamentFetchResult(
                 items=[],
                 source_mode="未選取",
             )
-            parliament_items = []
-            filtered_parliament_items = []
+            fetched_parliament_items = []
+        _check_cancelled(cancelled)
+        parliament_items = _merge_parliament_items(
+            request.base_result,
+            fetched_parliament_items,
+            retry_source_ids,
+            include_parliament,
+        )
+        filtered_parliament_items = apply_parliament_topic_filter(
+            parliament_items,
+            active_profile,
+        )
 
+        _check_cancelled(cancelled)
         _emit(progress, "export", "正在翻譯並建立 Excel", 4, 5)
         path = export_news(
             all_items,
@@ -147,10 +176,18 @@ def execute_run(
                 profile=active_profile,
             ),
         )
-        status, warnings = evaluate_run_status(fetch_result, parliament_result)
+        source_health = _merge_source_health(
+            request.base_result,
+            fetch_result.source_health,
+            parliament_result.source_health,
+            retry_source_ids,
+        )
+        if retry_source_ids:
+            status, warnings = evaluate_source_health(source_health)
+        else:
+            status, warnings = evaluate_run_status(fetch_result, parliament_result)
         data_fingerprint = make_data_fingerprint(all_items, parliament_items)
         delivery_id = make_delivery_id(run_id, status, data_fingerprint)
-        source_health = tuple(fetch_result.source_health + parliament_result.source_health)
         summary = RunSummary(
             run_id=run_id,
             generated_at=datetime.now(timezone.utc).isoformat(),
@@ -201,6 +238,95 @@ def evaluate_run_status(fetch_result, parliament_result) -> tuple[RunStatus, lis
     if fetch_result.all_successful and parliament_result.all_successful:
         return RunStatus.COMPLETE, warnings
     return RunStatus.DEGRADED, warnings
+
+
+def evaluate_source_health(source_health) -> tuple[RunStatus, list[str]]:
+    warnings = [health.warning for health in source_health if health.warning]
+    if all(health.success and not health.warning for health in source_health):
+        return RunStatus.COMPLETE, warnings
+    return RunStatus.DEGRADED, warnings
+
+
+def _merge_news_items(
+    base_result: RunResult | None,
+    fetched_items: list[NewsItem],
+    retry_source_ids: set[str],
+) -> list[NewsItem]:
+    if not retry_source_ids or base_result is None:
+        return dedupe_news_items(fetched_items)
+    preserved = [
+        item
+        for item in base_result.all_items
+        if _news_source_id(item) not in retry_source_ids
+    ]
+    return dedupe_news_items([*preserved, *fetched_items])
+
+
+def _merge_parliament_items(
+    base_result: RunResult | None,
+    fetched_items: list[ParliamentBriefing],
+    retry_source_ids: set[str],
+    include_parliament: bool,
+) -> list[ParliamentBriefing]:
+    if not retry_source_ids or base_result is None:
+        return fetched_items
+    if include_parliament:
+        return fetched_items
+    return list(base_result.parliament_items)
+
+
+def _merge_source_health(
+    base_result: RunResult | None,
+    news_health,
+    parliament_health,
+    retry_source_ids: set[str],
+):
+    current = list(news_health) + list(parliament_health)
+    if not retry_source_ids or base_result is None:
+        return tuple(current)
+    preserved = [
+        health
+        for health in base_result.summary.source_health
+        if _health_source_id(health.source) not in retry_source_ids
+    ]
+    combined = [*preserved, *current]
+    order = {
+        source: index
+        for index, source in enumerate(
+            [agency.short_name for agency in AGENCIES] + [PARLIAMENT_SOURCE_ID]
+        )
+    }
+    return tuple(
+        sorted(
+            combined,
+            key=lambda health: order.get(
+                _health_source_id(health.source),
+                len(order),
+            ),
+        )
+    )
+
+
+def _news_source_id(item: NewsItem) -> str:
+    for agency in AGENCIES:
+        if (
+            item.agency == agency.display_name
+            or item.agency == agency.short_name
+            or item.agency_en == agency.name_en
+            or item.unit_category == agency.short_name
+        ):
+            return agency.short_name
+    return item.agency
+
+
+def _health_source_id(source: str) -> str:
+    agency_ids = {agency.short_name for agency in AGENCIES}
+    return source if source in agency_ids else PARLIAMENT_SOURCE_ID
+
+
+def _check_cancelled(callback: CancelCallback | None) -> None:
+    if callback and callback():
+        raise RunCancelled("使用者已取消本次執行")
 
 
 def _filter_until(items, until: datetime):

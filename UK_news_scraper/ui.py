@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 from dataclasses import replace
 from datetime import date, timedelta
 import json
@@ -17,11 +16,12 @@ import webbrowser
 from .app_service import (
     ExportOptionsRequest,
     ProgressEvent,
+    RunCancelled,
     RunRequest,
     RunResult,
     execute_run,
 )
-from .calendar_utils import CalendarMode, format_date, gregorian_to_roc
+from .calendar_utils import CalendarMode, format_date
 from .config import AGENCIES, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR
 from .profiles import (
     DEFAULT_PROFILE_ID,
@@ -31,127 +31,33 @@ from .profiles import (
     KeywordStrength,
     ProfileTopic,
     default_profile,
-    load_profiles,
+    load_profiles_with_recovery,
     profile_from_dict,
     profile_to_dict,
+    restore_default_profiles,
     safe_profile_id,
     save_profiles,
     validate_profile,
 )
-
-
-COLORS = {
-    "paper": "#F7F3E8",
-    "surface": "#FFFDF7",
-    "ink": "#14213D",
-    "muted": "#5C667A",
-    "line": "#D8D2C3",
-    "accent": "#1B4D5C",
-    "core": "#E6A817",
-    "general": "#F2C94C",
-    "supporting": "#FFF1B8",
-    "success": "#2D6A4F",
-    "danger": "#A33A32",
-}
+from .ui_components import (
+    COLORS,
+    DateSelector,
+    configure_relevance_tags,
+    enable_high_dpi,
+    font_family,
+)
+from .ui_state import (
+    ResultFilters,
+    failed_source_ids,
+    filter_and_sort_results,
+    load_run_history,
+)
 
 
 def launch() -> None:
-    _enable_high_dpi()
+    enable_high_dpi()
     app = UKNewsApp()
     app.mainloop()
-
-
-def _enable_high_dpi() -> None:
-    if os.name != "nt":
-        return
-    try:
-        import ctypes
-
-        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
-    except (AttributeError, OSError):
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
-        except (AttributeError, OSError):
-            pass
-
-
-def _font_family() -> str:
-    if sys.platform == "darwin":
-        return "PingFang TC"
-    if os.name == "nt":
-        return "Microsoft JhengHei UI"
-    return "Noto Sans CJK TC"
-
-
-class DateSelector(ttk.Frame):
-    def __init__(self, master, value: date):
-        super().__init__(master)
-        self._mode = CalendarMode.GREGORIAN
-        self._value = value
-        self.year_var = tk.StringVar()
-        self.month_var = tk.StringVar()
-        self.day_var = tk.StringVar()
-        self.year_box = ttk.Combobox(self, textvariable=self.year_var, state="readonly", width=11)
-        self.month_box = ttk.Combobox(self, textvariable=self.month_var, state="readonly", width=7)
-        self.day_box = ttk.Combobox(self, textvariable=self.day_var, state="readonly", width=7)
-        self.year_box.grid(row=0, column=0, padx=(0, 6))
-        self.month_box.grid(row=0, column=1, padx=6)
-        self.day_box.grid(row=0, column=2, padx=(6, 0))
-        self.year_box.bind("<<ComboboxSelected>>", self._selection_changed)
-        self.month_box.bind("<<ComboboxSelected>>", self._selection_changed)
-        self.day_box.bind("<<ComboboxSelected>>", self._selection_changed)
-        self._refresh()
-
-    def set_mode(self, mode: CalendarMode) -> None:
-        self._value = self.get()
-        self._mode = mode
-        self._refresh()
-
-    def get(self) -> date:
-        try:
-            year = int(self.year_var.get().replace("民國", "").replace("年", ""))
-            month = int(self.month_var.get().replace("月", ""))
-            day = int(self.day_var.get().replace("日", ""))
-            if self._mode is CalendarMode.ROC:
-                gregorian_year = year + 1911
-            else:
-                gregorian_year = year
-            day = min(day, calendar.monthrange(gregorian_year, month)[1])
-            return date(gregorian_year, month, day)
-        except ValueError:
-            return self._value
-
-    def _refresh(self) -> None:
-        current_year = date.today().year + 1
-        if self._mode is CalendarMode.ROC:
-            years = [f"民國{year}年" for year in range(1, current_year - 1911 + 1)]
-            display_year = gregorian_to_roc(self._value)[0]
-            year_value = f"民國{display_year}年"
-        else:
-            years = [str(year) for year in range(1912, current_year + 1)]
-            year_value = str(self._value.year)
-        self.year_box["values"] = years
-        self.month_box["values"] = [f"{month:02d}月" for month in range(1, 13)]
-        self.year_var.set(year_value)
-        self.month_var.set(f"{self._value.month:02d}月")
-        self._refresh_days(self._value.day)
-
-    def _refresh_days(self, preferred_day: int) -> None:
-        try:
-            year = int(self.year_var.get().replace("民國", "").replace("年", ""))
-            month = int(self.month_var.get().replace("月", ""))
-            if self._mode is CalendarMode.ROC:
-                year += 1911
-        except ValueError:
-            year, month = self._value.year, self._value.month
-        days = calendar.monthrange(year, month)[1]
-        self.day_box["values"] = [f"{day:02d}日" for day in range(1, days + 1)]
-        self.day_var.set(f"{min(preferred_day, days):02d}日")
-
-    def _selection_changed(self, _event=None) -> None:
-        previous_day = int(self.day_var.get().replace("日", "") or self._value.day)
-        self._refresh_days(previous_day)
-        self._value = self.get()
 
 
 class UKNewsApp(tk.Tk):
@@ -164,10 +70,21 @@ class UKNewsApp(tk.Tk):
         self._queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self._result: RunResult | None = None
         self._result_rows: list[tuple[str, object]] = []
+        self._visible_result_rows: list[tuple[str, object]] = []
         self._active_result_item = None
-        self._profiles = load_profiles()
+        profile_report = load_profiles_with_recovery()
+        self._profiles = profile_report.profiles
+        self._profile_warning = profile_report.warning
         self._edit_topics: list[dict[str, object]] = []
         self._source_vars: dict[str, tk.BooleanVar] = {}
+        self._cancel_event = threading.Event()
+        self._run_thread: threading.Thread | None = None
+        self._last_request: RunRequest | None = None
+        self._closing = False
+        self._history_entries = []
+        self._result_sort_column = "score"
+        self._result_sort_descending = True
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._configure_styles()
         self._build_shell()
         self._build_profile_page()
@@ -175,12 +92,21 @@ class UKNewsApp(tk.Tk):
         self._build_results_page()
         self._show_page("run")
         self._load_profile(DEFAULT_PROFILE_ID)
+        self._refresh_history()
+        if self._profile_warning:
+            self.after(
+                0,
+                lambda: messagebox.showwarning(
+                    "設定檔已復原",
+                    self._profile_warning,
+                ),
+            )
         self.after(120, self._poll_queue)
 
     def _configure_styles(self) -> None:
         scale = max(1.0, self.winfo_fpixels("1i") / 72.0)
         self.tk.call("tk", "scaling", scale)
-        family = _font_family()
+        family = font_family()
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure(".", font=(family, 11), background=COLORS["paper"], foreground=COLORS["ink"])
@@ -207,8 +133,8 @@ class UKNewsApp(tk.Tk):
         brand.pack(fill="x")
         brand.create_oval(22, 24, 58, 60, fill=COLORS["core"], outline="")
         brand.create_line(31, 43, 49, 43, fill=COLORS["ink"], width=3)
-        brand.create_text(22, 78, anchor="w", text="UK NEWS", fill="white", font=(_font_family(), 16, "bold"))
-        brand.create_text(22, 102, anchor="w", text="RESEARCH DESK", fill="#C9D0DA", font=(_font_family(), 9))
+        brand.create_text(22, 78, anchor="w", text="UK NEWS", fill="white", font=(font_family(), 16, "bold"))
+        brand.create_text(22, 102, anchor="w", text="RESEARCH DESK", fill="#C9D0DA", font=(font_family(), 9))
         for page, label in (
             ("run", "執行抓取"),
             ("profiles", "主題設定"),
@@ -301,6 +227,10 @@ class UKNewsApp(tk.Tk):
 
         ttk.Label(card, text="輸出資料夾", style="Surface.TLabel").grid(row=4, column=0, sticky="w", pady=8)
         self.output_dir_var = tk.StringVar(value=str(DEFAULT_OUTPUT_DIR))
+        self.output_dir_var.trace_add(
+            "write",
+            lambda *_: self.after_idle(self._refresh_history),
+        )
         ttk.Entry(card, textvariable=self.output_dir_var).grid(
             row=4, column=1, columnspan=2, sticky="ew", padx=(18, 10), pady=8
         )
@@ -310,6 +240,20 @@ class UKNewsApp(tk.Tk):
         actions.pack(fill="x", pady=20)
         self.run_button = ttk.Button(actions, text="開始抓取", style="Primary.TButton", command=self._start_run)
         self.run_button.pack(side="left")
+        self.cancel_button = ttk.Button(
+            actions,
+            text="取消",
+            command=self._cancel_run,
+            state="disabled",
+        )
+        self.cancel_button.pack(side="left", padx=(8, 0))
+        self.retry_button = ttk.Button(
+            actions,
+            text="重試異常來源",
+            command=self._retry_failed_sources,
+            state="disabled",
+        )
+        self.retry_button.pack(side="left", padx=(8, 0))
         self.progress = ttk.Progressbar(actions, maximum=5)
         self.progress.pack(side="left", fill="x", expand=True, padx=18)
         self.run_status_var = tk.StringVar(value="準備就緒")
@@ -317,9 +261,15 @@ class UKNewsApp(tk.Tk):
 
         summary = ttk.Frame(page, style="Surface.TFrame", padding=20)
         summary.pack(fill="both", expand=True)
-        ttk.Label(summary, text="來源健康與執行摘要", style="Heading.TLabel").pack(anchor="w", pady=(0, 12))
+        ttk.Label(summary, text="執行監控與歷史", style="Heading.TLabel").pack(anchor="w", pady=(0, 12))
+        notebook = ttk.Notebook(summary)
+        notebook.pack(fill="both", expand=True)
+        health_tab = ttk.Frame(notebook, style="Surface.TFrame", padding=8)
+        history_tab = ttk.Frame(notebook, style="Surface.TFrame", padding=8)
+        notebook.add(health_tab, text="來源健康")
+        notebook.add(history_tab, text="最近執行")
         self.health_tree = ttk.Treeview(
-            summary,
+            health_tab,
             columns=("source", "status", "count", "duration", "warning"),
             show="headings",
             height=10,
@@ -334,6 +284,45 @@ class UKNewsApp(tk.Tk):
             self.health_tree.heading(column, text=label)
             self.health_tree.column(column, width=width, anchor="w")
         self.health_tree.pack(fill="both", expand=True)
+        history_actions = ttk.Frame(history_tab, style="Surface.TFrame")
+        history_actions.pack(fill="x", pady=(0, 8))
+        ttk.Button(
+            history_actions,
+            text="重新整理",
+            command=self._refresh_history,
+        ).pack(side="left")
+        ttk.Button(
+            history_actions,
+            text="開啟 Excel",
+            command=self._open_history_workbook,
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            history_actions,
+            text="開啟執行摘要",
+            command=self._open_history_summary,
+        ).pack(side="left")
+        self.history_tree = ttk.Treeview(
+            history_tab,
+            columns=("period", "status", "profile", "news", "filtered", "parliament", "file"),
+            show="headings",
+            height=7,
+        )
+        for column, label, width in (
+            ("period", "期間", 190),
+            ("status", "狀態", 85),
+            ("profile", "設定檔", 160),
+            ("news", "新聞", 60),
+            ("filtered", "初篩", 60),
+            ("parliament", "國會", 60),
+            ("file", "檔案", 280),
+        ):
+            self.history_tree.heading(column, text=label)
+            self.history_tree.column(column, width=width, anchor="w")
+        self.history_tree.pack(fill="both", expand=True)
+        self.history_tree.bind(
+            "<Double-1>",
+            lambda _event: self._open_history_workbook(),
+        )
 
     def _build_profile_page(self) -> None:
         page = self._page("profiles")
@@ -353,6 +342,7 @@ class UKNewsApp(tk.Tk):
             ("新增", self._new_profile),
             ("複製", self._duplicate_profile),
             ("保存", self._save_profile),
+            ("還原內建", self._restore_profiles),
             ("刪除", self._delete_profile),
             ("匯入", self._import_profile),
             ("匯出", self._export_profile),
@@ -427,12 +417,16 @@ class UKNewsApp(tk.Tk):
         ttk.Label(page, text="篩選結果", style="Title.TLabel").pack(anchor="w")
         filters = ttk.Frame(page, style="Paper.TFrame")
         filters.pack(fill="x", pady=(12, 14))
+        filters_top = ttk.Frame(filters, style="Paper.TFrame")
+        filters_top.pack(fill="x")
+        filters_bottom = ttk.Frame(filters, style="Paper.TFrame")
+        filters_bottom.pack(fill="x", pady=(8, 0))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._refresh_results())
-        ttk.Entry(filters, textvariable=self.search_var, width=38).pack(side="left")
+        ttk.Entry(filters_top, textvariable=self.search_var, width=34).pack(side="left")
         self.result_type_var = tk.StringVar(value="全部")
         type_box = ttk.Combobox(
-            filters,
+            filters_top,
             textvariable=self.result_type_var,
             values=("全部", "新聞", "國會研究"),
             state="readonly",
@@ -442,7 +436,7 @@ class UKNewsApp(tk.Tk):
         type_box.bind("<<ComboboxSelected>>", lambda _event: self._refresh_results())
         self.result_strength_var = tk.StringVar(value="全部強度")
         strength_box = ttk.Combobox(
-            filters,
+            filters_top,
             textvariable=self.result_strength_var,
             values=("全部強度", "核心", "一般", "輔助"),
             state="readonly",
@@ -452,7 +446,7 @@ class UKNewsApp(tk.Tk):
         strength_box.bind("<<ComboboxSelected>>", lambda _event: self._refresh_results())
         self.result_source_var = tk.StringVar(value="全部來源")
         self.result_source_box = ttk.Combobox(
-            filters,
+            filters_top,
             textvariable=self.result_source_var,
             values=("全部來源",),
             state="readonly",
@@ -462,7 +456,7 @@ class UKNewsApp(tk.Tk):
         self.result_source_box.bind("<<ComboboxSelected>>", lambda _event: self._refresh_results())
         self.result_topic_var = tk.StringVar(value="全部主題")
         self.result_topic_box = ttk.Combobox(
-            filters,
+            filters_top,
             textvariable=self.result_topic_var,
             values=("全部主題",),
             state="readonly",
@@ -470,7 +464,64 @@ class UKNewsApp(tk.Tk):
         )
         self.result_topic_box.pack(side="left")
         self.result_topic_box.bind("<<ComboboxSelected>>", lambda _event: self._refresh_results())
-        ttk.Button(filters, text="開啟 Excel", command=self._open_workbook).pack(side="right")
+        ttk.Button(filters_top, text="開啟 Excel", command=self._open_workbook).pack(side="right")
+
+        ttk.Label(filters_bottom, text="分數").pack(side="left")
+        self.result_min_score_var = tk.IntVar(value=0)
+        minimum_score = ttk.Spinbox(
+            filters_bottom,
+            from_=0,
+            to=999,
+            textvariable=self.result_min_score_var,
+            width=5,
+            command=self._refresh_results,
+        )
+        minimum_score.pack(side="left", padx=(6, 2))
+        minimum_score.bind("<KeyRelease>", lambda _event: self._refresh_results())
+        ttk.Label(filters_bottom, text="至").pack(side="left")
+        self.result_max_score_var = tk.IntVar(value=999)
+        maximum_score = ttk.Spinbox(
+            filters_bottom,
+            from_=0,
+            to=999,
+            textvariable=self.result_max_score_var,
+            width=5,
+            command=self._refresh_results,
+        )
+        maximum_score.pack(side="left", padx=6)
+        maximum_score.bind("<KeyRelease>", lambda _event: self._refresh_results())
+        self.result_date_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            filters_bottom,
+            text="日期",
+            variable=self.result_date_enabled_var,
+            command=self._refresh_results,
+        ).pack(side="left", padx=(14, 6))
+        today = date.today()
+        self.result_start_selector = DateSelector(
+            filters_bottom,
+            today - timedelta(days=14),
+            self._refresh_results,
+        )
+        self.result_start_selector.pack(side="left")
+        ttk.Label(filters_bottom, text="至").pack(side="left", padx=6)
+        self.result_end_selector = DateSelector(
+            filters_bottom,
+            today,
+            self._refresh_results,
+        )
+        self.result_end_selector.pack(side="left")
+        ttk.Button(
+            filters_bottom,
+            text="清除篩選",
+            command=self._clear_result_filters,
+        ).pack(side="left", padx=12)
+        self.result_count_var = tk.StringVar(value="顯示 0 筆")
+        ttk.Label(
+            filters_bottom,
+            textvariable=self.result_count_var,
+            style="Muted.TLabel",
+        ).pack(side="right")
 
         pane = ttk.Panedwindow(page, orient="horizontal")
         pane.pack(fill="both", expand=True)
@@ -491,7 +542,11 @@ class UKNewsApp(tk.Tk):
             ("level", "可能性", 70),
             ("title", "標題", 500),
         ):
-            self.result_tree.heading(column, text=label)
+            self.result_tree.heading(
+                column,
+                text=label,
+                command=lambda selected=column: self._sort_results(selected),
+            )
             self.result_tree.column(column, width=width)
         self.result_tree.pack(fill="both", expand=True)
         self.result_tree.bind("<<TreeviewSelect>>", self._result_selected)
@@ -513,14 +568,12 @@ class UKNewsApp(tk.Tk):
             relief="flat",
             bg=COLORS["surface"],
             fg=COLORS["ink"],
-            font=(_font_family(), 11),
+            font=(font_family(), 11),
             padx=4,
             pady=4,
         )
         self.detail_text.pack(fill="both", expand=True)
-        self.detail_text.tag_configure("core", background=COLORS["core"])
-        self.detail_text.tag_configure("general", background=COLORS["general"])
-        self.detail_text.tag_configure("supporting", background=COLORS["supporting"])
+        configure_relevance_tags(self.detail_text)
         self.detail_text.configure(state="disabled")
         ttk.Button(detail_frame, text="開啟原始資料", command=self._open_source).pack(anchor="e", pady=(12, 0))
 
@@ -614,6 +667,20 @@ class UKNewsApp(tk.Tk):
         except (ValueError, OSError) as exc:
             messagebox.showerror("無法保存", str(exc))
 
+    def _restore_profiles(self) -> None:
+        if not messagebox.askyesno(
+            "還原內建設定",
+            "確定移除所有自訂設定並還原內建科技法制設定？目前設定會保留備份。",
+        ):
+            return
+        try:
+            self._profiles = restore_default_profiles()
+            self._load_profile(DEFAULT_PROFILE_ID)
+        except OSError as exc:
+            messagebox.showerror("無法還原", str(exc))
+            return
+        messagebox.showinfo("設定已還原", "已還原內建科技法制設定。")
+
     def _new_profile(self) -> None:
         name = simpledialog.askstring("新增設定檔", "設定檔名稱：", parent=self)
         if not name:
@@ -660,6 +727,11 @@ class UKNewsApp(tk.Tk):
             profile = profile_from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
             if profile.profile_id == DEFAULT_PROFILE_ID:
                 profile = replace(profile, profile_id=f"{DEFAULT_PROFILE_ID}-imported")
+            if profile.profile_id in self._profiles and not messagebox.askyesno(
+                "設定檔已存在",
+                f"設定檔 ID「{profile.profile_id}」已存在，是否覆寫？",
+            ):
+                return
             self._profiles[profile.profile_id] = profile
             save_profiles(list(self._profiles.values()))
             self._load_profile(profile.profile_id)
@@ -809,6 +881,8 @@ class UKNewsApp(tk.Tk):
         mode = CalendarMode.ROC if self.ui_calendar_var.get() == "民國" else CalendarMode.GREGORIAN
         self.start_selector.set_mode(mode)
         self.end_selector.set_mode(mode)
+        self.result_start_selector.set_mode(mode)
+        self.result_end_selector.set_mode(mode)
         self._refresh_results()
 
     def _choose_output_dir(self) -> None:
@@ -843,24 +917,65 @@ class UKNewsApp(tk.Tk):
         except (ValueError, KeyError) as exc:
             messagebox.showerror("無法執行", str(exc))
             return
+        self._launch_run(request)
+
+    def _launch_run(self, request: RunRequest) -> None:
+        if self._run_thread and self._run_thread.is_alive():
+            messagebox.showwarning("已有執行中工作", "請等待目前工作完成或先取消。")
+            return
+        self._last_request = request
+        self._cancel_event.clear()
         self.run_button.configure(state="disabled")
+        self.retry_button.configure(state="disabled")
+        self.cancel_button.configure(state="normal")
         self.progress["value"] = 0
         self.run_status_var.set("正在啟動…")
         self.health_tree.delete(*self.health_tree.get_children())
-        threading.Thread(target=self._run_worker, args=(request,), daemon=True).start()
+        self._run_thread = threading.Thread(
+            target=self._run_worker,
+            args=(request,),
+            daemon=False,
+        )
+        self._run_thread.start()
+
+    def _cancel_run(self) -> None:
+        if not self._run_thread or not self._run_thread.is_alive():
+            return
+        self._cancel_event.set()
+        self.cancel_button.configure(state="disabled")
+        self.run_status_var.set("正在安全取消；目前下載完成後停止…")
+
+    def _retry_failed_sources(self) -> None:
+        if not self._result or not self._last_request:
+            messagebox.showinfo("沒有可重試工作", "請先完成一次抓取。")
+            return
+        source_ids = failed_source_ids(self._result.summary.source_health)
+        if not source_ids:
+            messagebox.showinfo("來源皆正常", "目前沒有異常來源需要重試。")
+            return
+        request = replace(
+            self._last_request,
+            retry_source_ids=source_ids,
+            base_result=self._result,
+        )
+        self._launch_run(request)
 
     def _run_worker(self, request: RunRequest) -> None:
         try:
             result = execute_run(
                 request,
                 progress=lambda event: self._queue.put(("progress", event)),
+                cancelled=self._cancel_event.is_set,
             )
+        except RunCancelled as exc:
+            self._queue.put(("cancelled", exc))
         except Exception as exc:
             self._queue.put(("error", exc))
         else:
             self._queue.put(("result", result))
 
     def _poll_queue(self) -> None:
+        terminal_event = False
         try:
             while True:
                 kind, payload = self._queue.get_nowait()
@@ -868,13 +983,32 @@ class UKNewsApp(tk.Tk):
                     self._handle_progress(payload)
                 elif kind == "result":
                     self._handle_result(payload)
+                    terminal_event = True
+                elif kind == "cancelled":
+                    self._finish_run_controls()
+                    self.run_status_var.set("執行已取消")
+                    terminal_event = True
                 elif kind == "error":
-                    self.run_button.configure(state="normal")
+                    self._finish_run_controls()
                     self.run_status_var.set("執行失敗")
-                    messagebox.showerror("執行失敗", str(payload))
+                    if not self._closing:
+                        messagebox.showerror("執行失敗", str(payload))
+                    terminal_event = True
         except queue.Empty:
             pass
+        if self._closing and terminal_event:
+            self.destroy()
+            return
         self.after(120, self._poll_queue)
+
+    def _finish_run_controls(self) -> None:
+        self.run_button.configure(state="normal")
+        self.cancel_button.configure(state="disabled")
+        can_retry = bool(
+            self._result
+            and failed_source_ids(self._result.summary.source_health)
+        )
+        self.retry_button.configure(state="normal" if can_retry else "disabled")
 
     def _handle_progress(self, event: ProgressEvent) -> None:
         self.progress["maximum"] = event.total or 5
@@ -883,7 +1017,7 @@ class UKNewsApp(tk.Tk):
 
     def _handle_result(self, result: RunResult) -> None:
         self._result = result
-        self.run_button.configure(state="normal")
+        self._finish_run_controls()
         self.run_status_var.set(
             f"完成：新聞 {result.summary.all_news_count}，初篩 {result.summary.filtered_news_count}，"
             f"國會 {result.summary.parliament_count}"
@@ -904,7 +1038,6 @@ class UKNewsApp(tk.Tk):
             *(("新聞", item) for item in result.filtered_items),
             *(("國會研究", item) for item in result.filtered_parliament_items),
         ]
-        self._result_rows.sort(key=lambda row: row[1].relevance_score, reverse=True)
         sources = sorted(
             {
                 item.agency if item_type == "新聞" else item.publisher
@@ -922,41 +1055,51 @@ class UKNewsApp(tk.Tk):
         self.result_topic_box["values"] = ("全部主題", *topics)
         self.result_source_var.set("全部來源")
         self.result_topic_var.set("全部主題")
+        self.result_date_enabled_var.set(False)
+        self.result_start_selector.set(date.fromisoformat(result.summary.period_start))
+        self.result_end_selector.set(date.fromisoformat(result.summary.period_end))
         self._refresh_results()
+        self._refresh_history()
         self._show_page("results")
 
     def _refresh_results(self) -> None:
         if not hasattr(self, "result_tree"):
             return
         self.result_tree.delete(*self.result_tree.get_children())
-        query = self.search_var.get().casefold().strip()
-        selected_type = self.result_type_var.get()
-        selected_strength = self.result_strength_var.get()
-        selected_source = self.result_source_var.get()
-        selected_topic = self.result_topic_var.get()
+        try:
+            minimum_score = int(self.result_min_score_var.get())
+            maximum_score = int(self.result_max_score_var.get())
+        except (ValueError, tk.TclError):
+            self.result_count_var.set("分數格式無效")
+            return
+        if minimum_score > maximum_score:
+            self.result_count_var.set("最低分不得高於最高分")
+            return
+        use_dates = self.result_date_enabled_var.get()
+        filters = ResultFilters(
+            query=self.search_var.get(),
+            item_type=self.result_type_var.get(),
+            strength=self.result_strength_var.get(),
+            source=self.result_source_var.get(),
+            topic=self.result_topic_var.get(),
+            minimum_score=minimum_score,
+            maximum_score=maximum_score,
+            date_start=self.result_start_selector.get() if use_dates else None,
+            date_end=self.result_end_selector.get() if use_dates else None,
+        )
+        self._visible_result_rows = filter_and_sort_results(
+            self._result_rows,
+            filters,
+            sort_column=self._result_sort_column,
+            descending=self._result_sort_descending,
+        )
         calendar_mode = (
             CalendarMode.ROC
             if self.ui_calendar_var.get() == "民國"
             else CalendarMode.GREGORIAN
         )
-        for index, (item_type, item) in enumerate(self._result_rows):
-            if selected_type != "全部" and selected_type != item_type:
-                continue
-            searchable = f"{item.title} {item.summary} {' '.join(item.matched_topics)}".casefold()
-            if query and query not in searchable:
-                continue
-            strength_matches = {
-                "核心": bool(item.core_matched_keywords),
-                "一般": bool(item.general_matched_keywords),
-                "輔助": bool(item.supporting_matched_keywords),
-            }
-            if selected_strength != "全部強度" and not strength_matches[selected_strength]:
-                continue
+        for index, (item_type, item) in enumerate(self._visible_result_rows):
             source = item.agency if item_type == "新聞" else item.publisher
-            if selected_source != "全部來源" and selected_source != source:
-                continue
-            if selected_topic != "全部主題" and selected_topic not in item.matched_topics:
-                continue
             self.result_tree.insert(
                 "",
                 "end",
@@ -970,12 +1113,36 @@ class UKNewsApp(tk.Tk):
                     item.title,
                 ),
             )
+        self.result_count_var.set(
+            f"顯示 {len(self._visible_result_rows)}／{len(self._result_rows)} 筆"
+        )
+
+    def _sort_results(self, column: str) -> None:
+        if self._result_sort_column == column:
+            self._result_sort_descending = not self._result_sort_descending
+        else:
+            self._result_sort_column = column
+            self._result_sort_descending = column in {"date", "score", "level"}
+        self._refresh_results()
+
+    def _clear_result_filters(self) -> None:
+        self.search_var.set("")
+        self.result_type_var.set("全部")
+        self.result_strength_var.set("全部強度")
+        self.result_source_var.set("全部來源")
+        self.result_topic_var.set("全部主題")
+        self.result_min_score_var.set(0)
+        self.result_max_score_var.set(999)
+        self.result_date_enabled_var.set(False)
+        self._result_sort_column = "score"
+        self._result_sort_descending = True
+        self._refresh_results()
 
     def _result_selected(self, _event=None) -> None:
         selection = self.result_tree.selection()
         if not selection:
             return
-        item_type, item = self._result_rows[int(selection[0])]
+        item_type, item = self._visible_result_rows[int(selection[0])]
         self._active_result_item = item
         calendar_mode = (
             CalendarMode.ROC
@@ -1026,13 +1193,70 @@ class UKNewsApp(tk.Tk):
         if not self._result:
             messagebox.showinfo("尚無結果", "請先完成一次抓取。")
             return
-        path = self._result.workbook_path
+        self._open_path(self._result.workbook_path)
+
+    def _refresh_history(self) -> None:
+        if not hasattr(self, "history_tree"):
+            return
+        self._history_entries = load_run_history(self.output_dir_var.get())
+        self.history_tree.delete(*self.history_tree.get_children())
+        for index, entry in enumerate(self._history_entries):
+            self.history_tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(
+                    f"{entry.period_start.isoformat()} ～ {entry.period_end.isoformat()}",
+                    entry.status,
+                    entry.profile_name,
+                    entry.all_news_count,
+                    entry.filtered_news_count,
+                    entry.parliament_count,
+                    entry.workbook_path.name,
+                ),
+            )
+
+    def _selected_history_entry(self):
+        selection = self.history_tree.selection()
+        if not selection:
+            messagebox.showinfo("請選擇紀錄", "請先選擇一筆最近執行紀錄。")
+            return None
+        return self._history_entries[int(selection[0])]
+
+    def _open_history_workbook(self) -> None:
+        entry = self._selected_history_entry()
+        if entry:
+            self._open_path(entry.workbook_path)
+
+    def _open_history_summary(self) -> None:
+        entry = self._selected_history_entry()
+        if entry:
+            self._open_path(entry.summary_path)
+
+    def _open_path(self, path: Path) -> None:
+        if not path.exists():
+            messagebox.showerror("檔案不存在", f"找不到檔案：{path}")
+            return
         if sys.platform == "darwin":
             subprocess.Popen(["open", str(path)])
         elif os.name == "nt":
             os.startfile(path)
         else:
             subprocess.Popen(["xdg-open", str(path)])
+
+    def _on_close(self) -> None:
+        if self._run_thread and self._run_thread.is_alive():
+            if not messagebox.askyesno(
+                "工作仍在執行",
+                "要取消目前工作並在安全停止後關閉嗎？",
+            ):
+                return
+            self._closing = True
+            self._cancel_run()
+            self.run_button.configure(state="disabled")
+            self.retry_button.configure(state="disabled")
+            return
+        self.destroy()
 
 
 if __name__ == "__main__":

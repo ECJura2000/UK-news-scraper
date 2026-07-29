@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 from typing import Any
 
@@ -57,6 +59,13 @@ class FilterProfile:
     @property
     def is_default(self) -> bool:
         return self.profile_id == DEFAULT_PROFILE_ID
+
+
+@dataclass(frozen=True)
+class ProfileLoadReport:
+    profiles: dict[str, FilterProfile]
+    warning: str = ""
+    recovery_path: Path | None = None
 
 
 _SUPPORTING_KEYWORDS = {
@@ -165,6 +174,7 @@ def profile_to_dict(profile: FilterProfile) -> dict[str, Any]:
 def profile_from_dict(payload: object) -> FilterProfile:
     if not isinstance(payload, dict):
         raise ValueError("設定檔必須是 JSON object")
+    payload = _migrate_profile_payload(payload)
     try:
         topics = tuple(
             ProfileTopic(
@@ -183,7 +193,7 @@ def profile_from_dict(payload: object) -> FilterProfile:
             profile_id=str(payload["profile_id"]),
             name=str(payload["name"]),
             description=str(payload.get("description", "")),
-            version=int(payload.get("version", PROFILE_SCHEMA_VERSION)),
+            version=int(payload["version"]),
             selected_sources=tuple(str(source) for source in payload["selected_sources"]),
             topics=topics,
             minimum_score=int(payload.get("minimum_score", 3)),
@@ -212,12 +222,31 @@ def load_profiles(path: str | Path | None = None) -> dict[str, FilterProfile]:
         payload = json.loads(destination.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"無法讀取設定檔：{exc}") from exc
-    if not isinstance(payload, dict) or not isinstance(payload.get("profiles"), list):
-        raise ValueError("設定檔集合必須包含 profiles array")
+    payload = _migrate_collection_payload(payload)
     for item in payload["profiles"]:
         profile = profile_from_dict(item)
+        if profile.profile_id in profiles:
+            raise ValueError(f"設定檔 ID 重複：{profile.profile_id}")
         profiles[profile.profile_id] = profile
     return profiles
+
+
+def load_profiles_with_recovery(
+    path: str | Path | None = None,
+) -> ProfileLoadReport:
+    destination = Path(path) if path else profiles_path()
+    try:
+        return ProfileLoadReport(load_profiles(destination))
+    except ValueError as exc:
+        recovery_path = _quarantine_invalid_file(destination)
+        warning = f"{exc}；已載入內建設定"
+        if recovery_path:
+            warning += f"，原檔保留於 {recovery_path}"
+        return ProfileLoadReport(
+            {DEFAULT_PROFILE_ID: default_profile()},
+            warning=warning,
+            recovery_path=recovery_path,
+        )
 
 
 def save_profiles(profiles: list[FilterProfile], path: str | Path | None = None) -> Path:
@@ -231,10 +260,21 @@ def save_profiles(profiles: list[FilterProfile], path: str | Path | None = None)
         "profiles": [profile_to_dict(profile) for profile in validated],
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        backup = destination.with_suffix(destination.suffix + ".bak")
+        backup_temporary = backup.with_suffix(backup.suffix + ".tmp")
+        shutil.copy2(destination, backup_temporary)
+        backup_temporary.replace(backup)
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(destination)
     return destination
+
+
+def restore_default_profiles(path: str | Path | None = None) -> dict[str, FilterProfile]:
+    profile = default_profile()
+    save_profiles([profile], path)
+    return {DEFAULT_PROFILE_ID: profile}
 
 
 def load_profile(reference: str | Path | None) -> FilterProfile:
@@ -262,3 +302,65 @@ def _default_strength(keyword: str) -> KeywordStrength:
     if " " in keyword.strip() or len(keyword.strip()) >= 10:
         return KeywordStrength.CORE
     return KeywordStrength.GENERAL
+
+
+def _migrate_collection_payload(payload: object) -> dict[str, Any]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("profiles"), list):
+        raise ValueError("設定檔集合必須包含 profiles array")
+    try:
+        version = int(payload.get("schema_version", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("設定檔集合版本必須是整數") from exc
+    if version > PROFILE_SCHEMA_VERSION:
+        raise ValueError(f"不支援的設定檔集合版本：{version}")
+    migrated = dict(payload)
+    profiles = list(migrated["profiles"])
+    if version == 0:
+        profiles = [_migrate_profile_payload(item) for item in profiles]
+        version = 1
+    if version != PROFILE_SCHEMA_VERSION:
+        raise ValueError(f"無法遷移設定檔集合版本：{version}")
+    migrated["schema_version"] = version
+    migrated["profiles"] = profiles
+    return migrated
+
+
+def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    migrated = dict(payload)
+    try:
+        version = int(migrated.get("version", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("設定檔版本必須是整數") from exc
+    if version > PROFILE_SCHEMA_VERSION:
+        raise ValueError(f"不支援的設定檔版本：{version}")
+    if version == 0:
+        migrated_topics = []
+        for topic in migrated.get("topics", []):
+            migrated_topic = dict(topic)
+            migrated_topic["keywords"] = [
+                (
+                    {"phrase": keyword, "strength": KeywordStrength.GENERAL.value}
+                    if isinstance(keyword, str)
+                    else keyword
+                )
+                for keyword in migrated_topic.get("keywords", [])
+            ]
+            migrated_topics.append(migrated_topic)
+        migrated["topics"] = migrated_topics
+        migrated["version"] = 1
+        version = 1
+    if version != PROFILE_SCHEMA_VERSION:
+        raise ValueError(f"無法遷移設定檔版本：{version}")
+    return migrated
+
+
+def _quarantine_invalid_file(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    recovery = path.with_name(f"{path.stem}.corrupt-{timestamp}{path.suffix}")
+    try:
+        path.replace(recovery)
+    except OSError:
+        return None
+    return recovery

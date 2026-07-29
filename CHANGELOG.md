@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 - 2026-07-29
+
+- Added a clearly named tracked-source ZIP to every formal release.
+- Added human and AI-agent quick-start guidance for source installation and execution.
+- Added release checks that require the source archive and include it in checksums and size budgets.
+
 ## 1.2.1 - 2026-07-29
 
 - Added score/date result filters, sortable columns, visible counts, and deterministic core-first highlight priority.

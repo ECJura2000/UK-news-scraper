@@ -10,6 +10,17 @@
 Capacity, dedupe, and concurrency measurements are documented in [PERFORMANCE.md](PERFORMANCE.md).
 Deployment, source maintenance, and delivery recovery are documented in [docs/MAINTENANCE.md](docs/MAINTENANCE.md).
 
+## 下載
+
+- [最新正式版本與各系統執行檔](https://github.com/ECJura2000/UK-news-scraper/releases/latest)
+- [目前開發版原始碼 ZIP](https://github.com/ECJura2000/UK-news-scraper/archive/refs/heads/main.zip)
+- [交給 Codex 或其他 AI 工具執行](AI_START_HERE.md)
+
+正式 Release 會同時提供 Windows、macOS、Linux 可攜版及
+`UKNewsScraper-版本-Source.zip`。若要讓 AI 工具協助安裝、修改或排程，
+請下載 Source ZIP；AI 代理進入專案後可直接讀取 [AGENTS.md](AGENTS.md)
+取得測試、輸出與寄信安全規則。
+
 ## 使用方式
 
 ### 桌面介面

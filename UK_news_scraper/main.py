@@ -8,30 +8,22 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .app_service import (
+    ExportOptionsRequest,
+    RunRequest,
+    evaluate_run_status,
+    execute_run,
+)
+from .calendar_utils import CalendarMode
 from .config import (
     DEFAULT_DAYS_BACK,
     DEFAULT_MAX_WORKERS,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_TIMEZONE,
 )
-from .dedupe import dedupe_news_items
-from .excel_exporter import export_news
 from .logging_utils import log_event
-from .models import RunStatus
-from .run_summary import (
-    RunSummary,
-    make_data_fingerprint,
-    make_delivery_id,
-    make_run_id,
-    write_run_summary,
-)
-from .runtime_lock import LockUnavailable, exclusive_lock
-from .scrapers.ministry.orchestration import fetch_all_with_status
-from .scrapers.ministry.registry import (
-    apply_parliament_topic_filter,
-    apply_topic_filter,
-)
-from .scrapers.parliament import fetch_parliament_briefings
+from .profiles import load_profile
+from .runtime_lock import LockUnavailable
 
 
 PASSWORD_REQUIRED_AFTER_DAYS = 30
@@ -65,13 +57,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         default=None,
-        help=f"輸出 xlsx 路徑；預設輸出到 {DEFAULT_OUTPUT_DIR}/英國相關機關爬蟲新聞（起始日-結束日）.xlsx。",
+        help=f"輸出 xlsx 路徑；預設輸出到 {DEFAULT_OUTPUT_DIR}/起始日-結束日_UK新聞查詢.xlsx。",
     )
     parser.add_argument(
         "--workers",
         type=int,
         default=DEFAULT_MAX_WORKERS,
         help=f"併發抓取 worker 數，預設 {DEFAULT_MAX_WORKERS}。",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="設定檔 ID 或 JSON 路徑；預設使用 UK 科技法制。",
+    )
+    parser.add_argument(
+        "--excel-calendar",
+        choices=tuple(mode.value for mode in CalendarMode),
+        default=CalendarMode.GREGORIAN.value,
+        help="Excel 日期紀年：gregorian（西元）或 roc（民國）。",
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="啟動高 DPI 桌面介面。",
     )
     parser.add_argument(
         "--check-runtime",
@@ -83,6 +91,11 @@ def parse_args() -> argparse.Namespace:
 
 def main(require_trial_password: bool = False) -> None:
     args = parse_args()
+    if args.ui:
+        from .ui import launch
+
+        launch()
+        return
     if args.check_runtime:
         _check_runtime()
         return
@@ -92,16 +105,16 @@ def main(require_trial_password: bool = False) -> None:
     since, until = _resolve_date_range(args, now)
     period_start = _local_date(since)
     period_end = _local_date(until - timedelta(microseconds=1))
-    run_id = make_run_id(period_start, period_end)
-
-    output = args.output
-    if not output:
-        output = Path(DEFAULT_OUTPUT_DIR) / f"英國相關機關爬蟲新聞（{_date_range_label(since, until, now)}）.xlsx"
-    lock_path = Path(output).expanduser().resolve().parent / f".{run_id}.lock"
     try:
-        with exclusive_lock(lock_path):
-            _execute_run(args, now, since, until, period_start, period_end, run_id, output)
-    except LockUnavailable as exc:
+        profile = load_profile(args.profile)
+        _execute_run(
+            args,
+            period_start,
+            period_end,
+            profile,
+            CalendarMode(args.excel_calendar),
+        )
+    except (LockUnavailable, ValueError) as exc:
         raise SystemExit(f"[error] {exc}") from exc
 
 
@@ -110,69 +123,76 @@ def _check_runtime() -> None:
     import feedparser
     import openpyxl
     import requests
+    import tkinter
 
     from .scrapers.ministry.registry import build_scrapers
 
     scrapers = build_scrapers()
     if not scrapers:
         raise RuntimeError("scraper registry is empty")
-    dependency_names = (bs4.__name__, feedparser.__name__, openpyxl.__name__, requests.__name__)
+    dependency_names = (
+        bs4.__name__,
+        feedparser.__name__,
+        openpyxl.__name__,
+        requests.__name__,
+        tkinter.__name__,
+    )
     print(
         "封裝執行環境檢查通過；"
         f"scrapers={len(scrapers)} dependencies={','.join(dependency_names)}"
     )
 
 
-def _execute_run(args, now, since, until, period_start, period_end, run_id, output) -> None:
-    fetch_result = fetch_all_with_status(since, max_workers=args.workers)
-    all_items = dedupe_news_items(_filter_until(fetch_result.items, until))
-    filtered_items = apply_topic_filter(all_items)
-    parliament_result = fetch_parliament_briefings(since)
-    parliament_items = _filter_until(parliament_result.items, until)
-    filtered_parliament_items = apply_parliament_topic_filter(parliament_items)
-    path = export_news(
-        all_items,
-        filtered_items,
-        output,
-        parliament_items=parliament_items,
-        filtered_parliament_items=filtered_parliament_items,
+def _execute_run(args, period_start, period_end, profile, calendar_mode) -> None:
+    result = execute_run(
+        RunRequest(
+            period_start=period_start,
+            period_end=period_end,
+            output_path=Path(args.output) if args.output else None,
+            workers=args.workers,
+            profile=profile,
+            export_options=ExportOptionsRequest(calendar_mode=calendar_mode),
+        )
     )
-    status, warnings = _run_status(fetch_result, parliament_result)
-    data_fingerprint = make_data_fingerprint(all_items, parliament_items)
-    delivery_id = make_delivery_id(run_id, status, data_fingerprint)
-    source_health = tuple(fetch_result.source_health + parliament_result.source_health)
-    summary_path = write_run_summary(
-        RunSummary(
-            run_id=run_id,
-            generated_at=now.isoformat(),
-            period_start=period_start.isoformat(),
-            period_end=period_end.isoformat(),
-            output_file=str(path),
-            all_news_count=len(all_items),
-            filtered_news_count=len(filtered_items),
-            parliament_count=len(parliament_items),
-            filtered_parliament_count=len(filtered_parliament_items),
-            status=status,
-            warnings=tuple(warnings),
-            data_fingerprint=data_fingerprint,
-            delivery_id=delivery_id,
-            source_health=source_health,
-        ),
-        path,
+    summary = result.summary
+    log_event(
+        "done",
+        "run_id",
+        f"Run ID：{summary.run_id}",
+        run_id=summary.run_id,
+        delivery_id=summary.delivery_id,
     )
-
-    log_event("done", "run_id", f"Run ID：{run_id}", run_id=run_id, delivery_id=delivery_id)
-    log_event("done", "all_news_count", f"全部新聞：{len(all_items)} 筆", count=len(all_items))
-    log_event("done", "filtered_news_count", f"初步篩選：{len(filtered_items)} 筆", count=len(filtered_items))
-    log_event("done", "parliament_count", f"國會研究資料：{len(parliament_items)} 筆（{parliament_result.source_mode}）", count=len(parliament_items), source_mode=parliament_result.source_mode)
-    log_event("done", "filtered_parliament_count", f"初步篩選研究資料：{len(filtered_parliament_items)} 筆", count=len(filtered_parliament_items))
-    log_event("done", "output_file", f"輸出檔案：{path}", path=str(path))
-    log_event("done", "run_summary", f"執行摘要：{summary_path}", path=str(summary_path))
-    if status == "complete":
-        log_event("done", "run_status", "抓取狀態：全部必要來源皆符合健康門檻", status=status)
+    log_event("done", "all_news_count", f"全部新聞：{summary.all_news_count} 筆", count=summary.all_news_count)
+    log_event(
+        "done",
+        "filtered_news_count",
+        f"初步篩選：{summary.filtered_news_count} 筆",
+        count=summary.filtered_news_count,
+    )
+    log_event(
+        "done",
+        "parliament_count",
+        f"國會研究資料：{summary.parliament_count} 筆",
+        count=summary.parliament_count,
+    )
+    log_event(
+        "done",
+        "filtered_parliament_count",
+        f"初步篩選研究資料：{summary.filtered_parliament_count} 筆",
+        count=summary.filtered_parliament_count,
+    )
+    log_event("done", "output_file", f"輸出檔案：{result.workbook_path}", path=str(result.workbook_path))
+    log_event("done", "run_summary", f"執行摘要：{result.summary_path}", path=str(result.summary_path))
+    if summary.status == "complete":
+        log_event(
+            "done",
+            "run_status",
+            "抓取狀態：全部必要來源皆符合健康門檻",
+            status=summary.status,
+        )
     else:
-        log_event("warn", "run_status", "抓取狀態：部分來源抓取失敗", status=status)
-        for warning in warnings:
+        log_event("warn", "run_status", "抓取狀態：部分來源抓取失敗", status=summary.status)
+        for warning in summary.warnings:
             log_event("warn", "source_warning", f"- {warning}", warning=warning)
 
 
@@ -301,19 +321,7 @@ def _local_date(value: datetime) -> date:
 
 
 def _run_status(fetch_result, parliament_result) -> tuple[str, list[str]]:
-    warnings = [
-        f"{status.agency_name}：{status.error}"
-        for status in fetch_result.failed_statuses
-    ]
-    warnings.extend(parliament_result.warnings)
-    warnings.extend(
-        health.warning
-        for health in fetch_result.source_health + parliament_result.source_health
-        if health.success and health.warning and health.warning not in warnings
-    )
-    if fetch_result.all_successful and parliament_result.all_successful:
-        return RunStatus.COMPLETE, warnings
-    return RunStatus.DEGRADED, warnings
+    return evaluate_run_status(fetch_result, parliament_result)
 
 
 if __name__ == "__main__":

@@ -12,11 +12,39 @@ Deployment, source maintenance, and delivery recovery are documented in [docs/MA
 
 ## 使用方式
 
+### 桌面介面
+
+```bash
+python3 -m UK_news_scraper --ui
+```
+
+桌面介面可建立主題設定檔、選擇 UK 機關與國會來源、設定核心／一般／
+輔助關鍵詞、使用西元或民國起訖日期，並在背景完成抓取與 Excel 匯出。
+Windows 可攜版可直接雙擊 `run_windows_ui.bat`。
+
+執行中可安全取消；來源發生錯誤或健康警告時，可使用「重試異常來源」
+保留其他成功資料並只重新抓取異常來源。「最近執行」可重新開啟既有
+Excel 與 `.run.json`。結果頁支援文字、類型、詞強度、來源、主題、分數
+及日期篩選，也可點擊欄位標題切換排序。
+
+設定檔會原子保存並保留 `.bak`；舊版格式會自動遷移。若設定檔損壞，
+介面會隔離原檔、載入內建科技法制設定並顯示復原位置。
+
+### 命令列
+
 ```bash
 python3 -m UK_news_scraper
 ```
 
-預設會依 `Asia/Taipei` 日曆日回推 14 天，輸出到桌面的 `UK新聞抓取/新聞放置區/英國相關機關爬蟲新聞（起始日-結束日）.xlsx`。同一天內重跑會使用相同日期區間與檔名。
+預設會依 `Asia/Taipei` 日曆日回推 14 天。從原始碼執行時輸出到專案的
+`新聞放置區/`；封裝版輸出到桌面的 `UK新聞抓取/新聞放置區/`。預設檔名
+為 `{起始日YYYYMMDD}-{結束日YYYYMMDD}_UK新聞查詢.xlsx`。
+
+可用 `UK_NEWS_OUTPUT_DIR` 覆寫預設輸出資料夾，例如：
+
+```bash
+UK_NEWS_OUTPUT_DIR=/absolute/output/path python3 -m UK_news_scraper
+```
 
 每次執行也會在 Excel 旁產生同名的 `.run.json` 執行摘要，內容包含穩定 `run_id`、邏輯筆數、完整或降級狀態與來源警告。寄信流程應先用 `run_id` 檢查是否已寄送，避免同一期間重複寄信。
 
@@ -74,6 +102,7 @@ Windows 防盜版版使用時，可把 `UKNewsScraper_protected.exe` 和 `run_wi
 python3 -m UK_news_scraper --days 14 --output output/本週英國新聞.xlsx
 python3 -m UK_news_scraper --since 2026-05-01
 python3 -m UK_news_scraper --workers 8
+python3 -m UK_news_scraper --profile digital-health --excel-calendar roc
 ```
 
 也可以直接在指令後面輸入搜尋期間：
@@ -89,7 +118,7 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 - `20160501`：從 2016-05-01 抓到現在。
 - `20160501～20160515`：只保留 2016-05-01 到 2016-05-15 的新聞，結束日當天會包含在內。
 - 全形 `～`、半形 `~`、前後半形或全形空格都可以解析。
-- 若未指定 `--output`，輸出會放在桌面的 `UK新聞抓取/新聞放置區`，檔名會自動帶入搜尋期間，例如 `英國相關機關爬蟲新聞（20260419-20260519）.xlsx`。
+- 若未指定 `--output`，原始碼執行會輸出到專案的 `新聞放置區`；封裝版仍使用桌面的 `UK新聞抓取/新聞放置區`。檔名會自動帶入搜尋期間，例如 `20260419-20260519_UK新聞查詢.xlsx`。
 
 輸出 Excel 會包含：
 
@@ -135,7 +164,9 @@ python3 -m pip install -r requirement-lock.txt -r requirement-dev.txt
 python3 -m pytest -q
 ```
 
-測試涵蓋日期區間穩定性、共用去重規則、來源狀態、執行摘要、HTTP session 重用、翻譯快取與必要 Excel 工作表。
+測試涵蓋日期區間穩定性、共用去重規則、來源狀態、執行摘要、HTTP
+session 重用、翻譯快取、必要 Excel 工作表、結果篩選與排序、取消／來源
+重試、設定檔遷移與損壞復原。
 
 `.run.json` 也會記錄每個來源的 critical 狀態、筆數、耗時、最新資料日期與健康警告。必要來源失敗或低於健康門檻時，整體狀態會標記為 `degraded`。
 

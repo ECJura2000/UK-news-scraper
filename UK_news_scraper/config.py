@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import sys
 
 from .models import Agency, TopicRule
 
@@ -9,7 +11,18 @@ DEFAULT_DAYS_BACK = 14
 DEFAULT_TIMEOUT_SECONDS = 20
 DEFAULT_MAX_WORKERS = 6
 DEFAULT_RETRY_TOTAL = 2
-DEFAULT_OUTPUT_DIR = Path.home() / "Desktop" / "UK新聞抓取" / "新聞放置區"
+
+
+def _default_output_dir() -> Path:
+    configured = os.environ.get("UK_NEWS_OUTPUT_DIR")
+    if configured:
+        return Path(configured).expanduser()
+    if getattr(sys, "frozen", False):
+        return Path.home() / "Desktop" / "UK新聞抓取" / "新聞放置區"
+    return Path(__file__).resolve().parent.parent / "新聞放置區"
+
+
+DEFAULT_OUTPUT_DIR = _default_output_dir()
 DEFAULT_TIMEZONE = "Asia/Taipei"
 SOURCE_HEALTH_MIN_ITEMS = {
     "DSIT": 1,
@@ -73,17 +86,25 @@ TOPIC_RULES: tuple[TopicRule, ...] = (
             "AI",
             "machine learning",
             "foundation model",
+            "foundation models",
             "frontier model",
+            "frontier AI",
             "generative AI",
             "automated decision",
+            "automated decision-making",
             "algorithm",
+            "algorithmic accountability",
             "explainability",
             "fairness",
             "AI Safety Institute",
+            "AI Security Institute",
             "model evaluation",
+            "evaluation",
             "copyright",
             "text and data mining",
             "TDM",
+            "privacy-by-design",
+            "AI and data protection",
         ),
     ),
     TopicRule(
@@ -107,10 +128,13 @@ TOPIC_RULES: tuple[TopicRule, ...] = (
             "data access",
             "open data",
             "data reuse",
+            "data reuse policy",
+            "Open Government Data Framework",
             "digital identity",
             "trust framework",
             "GOV.UK One Login",
             "One Login",
+            "UK Digital Identity and Attributes Trust Framework",
         ),
     ),
     TopicRule(
@@ -131,13 +155,17 @@ TOPIC_RULES: tuple[TopicRule, ...] = (
             "recommendation algorithm",
             "algorithm transparency",
             "media plurality",
+            "broadcast impartiality",
+            "online influence transparency",
             "disinformation",
             "misinformation",
             "foreign information manipulation",
+            "electoral information manipulation",
             "digital markets",
             "Digital Markets Competition and Consumers Act",
             "Strategic Market Status",
             "SMS",
+            "systemic risk",
         ),
     ),
     TopicRule(
@@ -167,11 +195,15 @@ TOPIC_RULES: tuple[TopicRule, ...] = (
             "SBOM",
             "software bill of materials",
             "supply chain",
+            "government cyber security strategy",
             "Cyber Essentials",
             "incident response",
             "resilience",
             "protective security",
             "hybrid threat",
+            "hybrid threat resilience",
+            "critical infrastructure protection",
+            "national cyber resilience",
         ),
     ),
     TopicRule(
@@ -180,6 +212,7 @@ TOPIC_RULES: tuple[TopicRule, ...] = (
         keywords=(
             "semiconductor",
             "National Semiconductor Strategy",
+            "semiconductor strategy",
             "chip",
             "microelectronics",
             "export control",
@@ -187,6 +220,7 @@ TOPIC_RULES: tuple[TopicRule, ...] = (
             "National Quantum Strategy",
             "quantum technologies",
             "quantum computing",
+            "quantum R&D",
         ),
     ),
 )

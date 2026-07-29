@@ -4,6 +4,7 @@ from time import monotonic, sleep
 
 from ...config import DEFAULT_MAX_WORKERS
 from ...errors import UKNewsError, is_retryable_error
+from ...models import Agency
 from .registry import build_scrapers, dedupe_items
 from .status import AgencyFetchStatus, FetchAllResult, health_warning, newest_published_at
 
@@ -11,10 +12,16 @@ from .status import AgencyFetchStatus, FetchAllResult, health_warning, newest_pu
 RETRY_DELAY_SECONDS = 2
 
 
-def fetch_all_with_status(since: datetime, max_workers: int = DEFAULT_MAX_WORKERS) -> FetchAllResult:
+def fetch_all_with_status(
+    since: datetime,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+    agencies: tuple[Agency, ...] | None = None,
+) -> FetchAllResult:
     all_items = []
     statuses = []
-    scrapers = build_scrapers()
+    scrapers = build_scrapers() if agencies is None else build_scrapers(agencies)
+    if not scrapers:
+        return FetchAllResult(items=[], statuses=[])
     workers = max(1, min(max_workers, len(scrapers)))
     failed_scrapers = []
 
@@ -54,8 +61,12 @@ def fetch_all_with_status(since: datetime, max_workers: int = DEFAULT_MAX_WORKER
     return FetchAllResult(items=dedupe_items(all_items), statuses=statuses)
 
 
-def fetch_all(since: datetime, max_workers: int = DEFAULT_MAX_WORKERS):
-    return fetch_all_with_status(since, max_workers=max_workers).items
+def fetch_all(
+    since: datetime,
+    max_workers: int = DEFAULT_MAX_WORKERS,
+    agencies: tuple[Agency, ...] | None = None,
+):
+    return fetch_all_with_status(since, max_workers=max_workers, agencies=agencies).items
 
 
 def _success_status(scraper, items, since, duration, attempts):

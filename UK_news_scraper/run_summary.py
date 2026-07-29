@@ -28,6 +28,13 @@ class RunSummary:
     data_fingerprint: str
     delivery_id: str
     source_health: tuple[SourceHealth, ...]
+    profile_id: str = "uk-tech-law"
+    profile_name: str = "UK 科技法制"
+    profile_version: int = 1
+    profile_hash: str = ""
+    selected_sources: tuple[str, ...] = ()
+    minimum_score: int = 3
+    excel_date_calendar: str = "gregorian"
 
 
 def write_run_summary(summary: RunSummary, output_path: str | Path) -> Path:
@@ -81,6 +88,10 @@ def make_data_fingerprint(
             "source_feed": item.source_feed,
             "matched_topics": sorted(item.matched_topics),
             "matched_keywords": sorted(item.matched_keywords, key=str.casefold),
+            "core_matched_keywords": sorted(item.core_matched_keywords, key=str.casefold),
+            "general_matched_keywords": sorted(item.general_matched_keywords, key=str.casefold),
+            "supporting_matched_keywords": sorted(item.supporting_matched_keywords, key=str.casefold),
+            "relevance_score": item.relevance_score,
         }
         for item in news_items
     ]
@@ -100,6 +111,10 @@ def make_data_fingerprint(
             "topics": sorted(item.topics),
             "matched_topics": sorted(item.matched_topics),
             "matched_keywords": sorted(item.matched_keywords, key=str.casefold),
+            "core_matched_keywords": sorted(item.core_matched_keywords, key=str.casefold),
+            "general_matched_keywords": sorted(item.general_matched_keywords, key=str.casefold),
+            "supporting_matched_keywords": sorted(item.supporting_matched_keywords, key=str.casefold),
+            "relevance_score": item.relevance_score,
         }
         for item in parliament_items
     )

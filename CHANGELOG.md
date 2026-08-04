@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3 - 2026-08-04
+
+- Synchronized the release line with the latest merged checkout and republished the current source package as the next patch version.
+
 ## 1.2.2 - 2026-07-29
 
 - Added a clearly named tracked-source ZIP to every formal release.

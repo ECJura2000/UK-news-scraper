@@ -45,7 +45,6 @@ def test_domain_item_to_excel_and_validated_run_summary(monkeypatch, tmp_path):
     workbook = load_workbook(output, data_only=False)
     payload = validate_run_summary_payload(json.loads(summary_path.read_text(encoding="utf-8")))
 
-    assert workbook["全部新聞"]["E2"].value == "Integration title"
-    assert workbook["全部新聞"]["F2"].hyperlink.target == "https://example.com/news"
+    assert workbook["全部新聞"]["F2"].value == "Integration title"
+    assert workbook["全部新聞"]["G2"].hyperlink.target == "https://example.com/news"
     assert payload["status"] == "complete"
-

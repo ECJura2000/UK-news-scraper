@@ -57,10 +57,10 @@ def test_export_highlights_only_relevant_content_fields(tmp_path, monkeypatch):
     all_sheet = workbook["全部新聞"]
     filtered_sheet = workbook["已初步篩選工作表"]
 
-    assert all_sheet["E2"].fill.fgColor.rgb == "00FFF2CC"
+    assert all_sheet["F2"].fill.fgColor.rgb == "00FFF2CC"
     assert all_sheet["A2"].fill.fill_type is None
-    assert filtered_sheet["I3"].value == "低"
-    assert filtered_sheet["J3"].value == 4
+    assert filtered_sheet["J3"].value == "低"
+    assert filtered_sheet["K3"].value == 4
 
 
 def test_relevance_fill_uses_darker_yellow_for_higher_relevance(tmp_path, monkeypatch):
@@ -82,7 +82,7 @@ def test_relevance_fill_uses_darker_yellow_for_higher_relevance(tmp_path, monkey
     sheet = workbook["全部新聞"]
 
     colours_by_title = {
-        sheet.cell(row, 5).value: sheet.cell(row, 5).fill.fgColor.rgb
+        sheet.cell(row, 6).value: sheet.cell(row, 6).fill.fgColor.rgb
         for row in (2, 4, 6)
     }
     assert colours_by_title == {
@@ -156,6 +156,6 @@ def test_export_uses_roc_number_format_and_strength_columns(tmp_path, monkeypatc
 
     assert all_sheet["C2"].value.date().isoformat() == "2026-06-08"
     assert "x-roc" in all_sheet["C2"].number_format
-    assert filtered_sheet["K3"].value == "artificial intelligence"
-    assert filtered_sheet["K3"].fill.fgColor.rgb == "00E6A817"
+    assert filtered_sheet["L3"].value == "artificial intelligence"
+    assert filtered_sheet["L3"].fill.fgColor.rgb == "00E6A817"
     assert workbook["篩選設定"]["B7"].value == "roc"

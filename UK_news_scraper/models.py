@@ -27,6 +27,7 @@ class Agency:
     news_pages: tuple[str, ...] = ()
     topics: tuple[str, ...] = ()
     link_include_patterns: tuple[str, ...] = ()
+    official_pages: tuple[str, ...] = ()
 
     @property
     def display_name(self) -> str:
@@ -54,6 +55,7 @@ class NewsItem:
     summary_keyword_strengths: dict[str, str] = field(default_factory=dict)
     relevance_score: int = 0
     relevance_level: str = ""
+    content_type: str = "news"
 
     @property
     def date_text(self) -> str:

@@ -22,7 +22,7 @@ from .profiles import (
 from .translation_cache import load_translations, save_translations
 
 
-HEADERS = ("編號", "部會", "新聞日期", "單位分類", "新聞標題", "新聞連結")
+HEADERS = ("編號", "部會", "新聞日期", "單位分類", "資料類型", "新聞標題", "新聞連結")
 MATCH_HEADERS = HEADERS + (
     "命中觀測領域",
     "命中關鍵字",
@@ -57,7 +57,7 @@ PARLIAMENT_MATCH_HEADERS = PARLIAMENT_HEADERS + (
     "一般關聯詞",
     "輔助關聯詞",
 )
-TITLE_COLUMN = 5
+TITLE_COLUMN = 6
 RELEVANCE_FILLS = {
     "高": PatternFill("solid", fgColor="FFD966"),
     "中": PatternFill("solid", fgColor="FFE699"),
@@ -303,7 +303,7 @@ def _style_filtered_sheet(ws) -> None:
             cell.font = Font(bold=True)
             cell.fill = PatternFill("solid", fgColor="D9EAF7")
             cell.alignment = Alignment(horizontal="center", vertical="center")
-    widths = (14, 38, 18, 24, 80, 72, 36, 60, 12, 10, 36, 36, 36, 72, 28, 60, 12, 10, 36, 36, 36)
+    widths = (14, 38, 18, 24, 16, 80, 72, 36, 60, 12, 10, 36, 36, 36, 72, 28, 60, 12, 10, 36, 36, 36, 36)
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
     for row in ws.iter_rows(min_row=3):
@@ -337,6 +337,7 @@ def _write_sheet(
             item.agency,
             item.published_at.date(),
             item.unit_category,
+            item.content_type,
             item.title,
             item.link,
         ]
@@ -366,12 +367,12 @@ def _write_sheet(
             ws.cell(chinese_row_number, TITLE_COLUMN).fill = title_fill
         if include_matches and item.matched_keywords:
             relevance_fill = _relevance_fill(item.relevance_level)
-            for column in (7, 8, 9, 10):
+            for column in (8, 9, 10, 11):
                 ws.cell(english_row_number, column).fill = relevance_fill
             for column, strength in (
-                (11, KeywordStrength.CORE),
-                (12, KeywordStrength.GENERAL),
-                (13, KeywordStrength.SUPPORTING),
+                (12, KeywordStrength.CORE),
+                (13, KeywordStrength.GENERAL),
+                (14, KeywordStrength.SUPPORTING),
             ):
                 if ws.cell(english_row_number, column).value:
                     ws.cell(english_row_number, column).fill = STRENGTH_FILLS[strength.value]
@@ -383,7 +384,7 @@ def _write_sheet(
                 end_column=column,
             )
 
-        link_cell = ws.cell(row=english_row_number, column=6)
+        link_cell = ws.cell(row=english_row_number, column=7)
         if item.link:
             link_cell.hyperlink = item.link
             link_cell.style = "Hyperlink"
@@ -641,8 +642,8 @@ def _fill_rows(ws, start_row: int, end_row: int, fill: PatternFill) -> None:
 
 def _merged_columns(include_matches: bool) -> tuple[int, ...]:
     if include_matches:
-        return (1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13)
-    return (1, 2, 3, 4, 6)
+        return (1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14)
+    return (1, 2, 3, 4, 5, 7)
 
 
 def _style_sheet(ws) -> None:
@@ -656,10 +657,11 @@ def _style_sheet(ws) -> None:
         2: 38,
         3: 14,
         4: 24,
-        5: 80,
-        6: 72,
-        7: 28,
-        8: 60,
+        5: 16,
+        6: 80,
+        7: 72,
+        8: 28,
+        9: 60,
     }
     for idx, width in widths.items():
         if idx <= ws.max_column:

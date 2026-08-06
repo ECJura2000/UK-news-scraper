@@ -70,6 +70,7 @@ def fetch_all(
 
 
 def _success_status(scraper, items, since, duration, attempts):
+    warnings = [warning for warning in (health_warning(scraper.agency.short_name, items, since), *scraper.source_warnings) if warning]
     return AgencyFetchStatus(
         agency_name=scraper.agency.display_name,
         source_name=scraper.agency.short_name,
@@ -78,7 +79,7 @@ def _success_status(scraper, items, since, duration, attempts):
         attempts=attempts,
         duration_seconds=duration,
         newest_published_at=newest_published_at(items),
-        warning=health_warning(scraper.agency.short_name, items, since),
+        warning="；".join(warnings),
     )
 
 

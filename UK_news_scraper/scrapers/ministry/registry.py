@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 import re
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -60,12 +61,22 @@ OFCOM_GOOGLE_NEWS_QUERIES = (
 class AgencyFeedScraper(Scraper):
     def __init__(self, agency: Agency) -> None:
         self.agency = agency
+        self.source_warnings: list[str] = []
 
     def fetch(self, since: datetime) -> list[NewsItem]:
+        self.source_warnings = []
         if self.agency.short_name == "NPSA":
+            official_items, _, _ = self._fetch_official_pages(since)
+            if official_items:
+                return official_items
+            if self.agency.news_pages:
+                html_items, _, _ = self._fetch_html_news_pages(since)
+                if html_items:
+                    return html_items
             return self._fetch_google_news_fallback(since)
 
         items: list[NewsItem] = []
+        feed_items: list[NewsItem] = []
         attempted_sources = 0
         successful_sources = 0
         feed_urls = list(self.agency.feeds)
@@ -80,6 +91,7 @@ class AgencyFeedScraper(Scraper):
                 feed = parse_feed(feed_url)
             except (UKNewsError, OSError, ValueError, KeyError, TypeError) as exc:
                 print(f"[warn] RSS/Atom 讀取失敗：{self.agency.short_name} {feed_url} ({exc})")
+                self.source_warnings.append(f"{self.agency.short_name} RSS/Atom 讀取失敗：{feed_url}")
                 continue
             successful_sources += 1
 
@@ -90,13 +102,20 @@ class AgencyFeedScraper(Scraper):
                     print(f"[warn] 單筆 RSS 解析失敗：{self.agency.short_name} {feed_url} ({exc})")
                     continue
                 if item:
-                    items.append(item)
+                    feed_items.append(item)
 
-        if not items and self.agency.news_pages:
+        if not feed_items and self.agency.news_pages:
             html_items, html_attempted, html_successful = self._fetch_html_news_pages(since)
             attempted_sources += html_attempted
             successful_sources += html_successful
-            items.extend(html_items)
+            feed_items.extend(html_items)
+
+        items.extend(feed_items)
+        if self.agency.official_pages:
+            official_items, official_attempted, official_successful = self._fetch_official_pages(since)
+            attempted_sources += official_attempted
+            successful_sources += official_successful
+            items.extend(official_items)
 
         if not items and self.agency.short_name in (
             "Ofcom",
@@ -139,6 +158,7 @@ class AgencyFeedScraper(Scraper):
             published_at=published_at,
             summary=summary,
             source_feed=feed_url,
+            content_type=_content_type_for_link(link, title),
         )
 
     def _is_allowed_link(self, link: str) -> bool:
@@ -146,6 +166,12 @@ class AgencyFeedScraper(Scraper):
         if not patterns:
             return True
         return any(pattern in link for pattern in patterns)
+
+    @staticmethod
+    def _is_official_link(link: str, page_url: str) -> bool:
+        link_host = urlparse(link).netloc.casefold().removeprefix("www.")
+        page_host = urlparse(page_url).netloc.casefold().removeprefix("www.")
+        return bool(link_host and link_host == page_host)
 
     def _fetch_html_news_pages(self, since: datetime) -> tuple[list[NewsItem], int, int]:
         items: list[NewsItem] = []
@@ -194,6 +220,97 @@ class AgencyFeedScraper(Scraper):
                     )
                 )
         return dedupe_items(items), attempted_sources, successful_sources
+
+    def _fetch_official_pages(self, since: datetime) -> tuple[list[NewsItem], int, int]:
+        items: list[NewsItem] = []
+        attempted_sources = 0
+        successful_sources = 0
+        for page_url in self.agency.official_pages:
+            attempted_sources += 1
+            try:
+                soup = BeautifulSoup(get_text(page_url), "html.parser")
+                page_items = self._extract_official_page_items(soup, page_url, since)
+            except Exception as exc:
+                print(f"[warn] 官方補充頁讀取失敗：{self.agency.short_name} {page_url} ({exc})")
+                self.source_warnings.append(f"{self.agency.short_name} 官方補充頁讀取失敗：{page_url}")
+                continue
+            successful_sources += 1
+            items.extend(page_items)
+        return dedupe_items(items), attempted_sources, successful_sources
+
+    def _extract_official_page_items(
+        self,
+        soup: BeautifulSoup,
+        page_url: str,
+        since: datetime,
+    ) -> list[NewsItem]:
+        items: list[NewsItem] = []
+        page_item = self._extract_page_metadata_item(soup, page_url, since)
+        if page_item:
+            items.append(page_item)
+
+        containers = soup.select("article, li, .govuk-document-list li, .search-result, .card")
+        seen_links: set[str] = {page_item.link if page_item else ""}
+        for container in containers:
+            anchor = container.select_one("h1 a[href], h2 a[href], h3 a[href], h4 a[href], a[href]")
+            if not anchor:
+                continue
+            link = urljoin(page_url, anchor.get("href", ""))
+            if not self._is_official_link(link, page_url) or link.rstrip("/") in seen_links:
+                continue
+            title = clean_text(anchor.get_text(" ", strip=True))
+            if len(title) < 12:
+                continue
+            published_at = _date_from_html(container)
+            if not published_at or published_at < since:
+                continue
+            seen_links.add(link.rstrip("/"))
+            items.append(
+                self._html_news_item(
+                    title=title,
+                    link=link,
+                    published_at=published_at,
+                    source_feed=page_url,
+                    summary=_summary_from_html(container),
+                    content_type=_content_type_for_link(link, title, container.get_text(" ", strip=True)),
+                )
+            )
+        return dedupe_items(items)
+
+    def _extract_page_metadata_item(
+        self,
+        soup: BeautifulSoup,
+        page_url: str,
+        since: datetime,
+    ) -> NewsItem | None:
+        page_path = urlparse(page_url).path.casefold()
+        has_article_metadata = bool(
+            soup.select_one(
+                'meta[property="article:published_time"], meta[property="datePublished"], '
+                'script[type="application/ld+json"]'
+            )
+        )
+        is_content_page = any(
+            marker in page_path
+            for marker in ("/collection/", "/guidance/", "/government/publications/", "/government/consultations/", "/report")
+        )
+        if not is_content_page and not has_article_metadata:
+            return None
+        title_node = soup.select_one("h1") or soup.select_one('meta[property="og:title"]') or soup.find("title")
+        title = clean_text(
+            title_node.get("content", "") if title_node and title_node.name == "meta" else title_node.get_text(" ", strip=True) if title_node else ""
+        )
+        published_at = _date_from_html(soup)
+        if not title or len(title) < 12 or not published_at or published_at < since:
+            return None
+        return self._html_news_item(
+            title=title,
+            link=page_url,
+            published_at=published_at,
+            source_feed=page_url,
+            summary=_summary_from_html(soup),
+            content_type=_content_type_for_link(page_url, title, soup.get_text(" ", strip=True)),
+        )
 
     def _extract_html_news_items(
         self,
@@ -298,6 +415,7 @@ class AgencyFeedScraper(Scraper):
         published_at: datetime,
         source_feed: str,
         summary: str = "",
+        content_type: str = "news",
     ) -> NewsItem:
         return NewsItem(
             agency=self.agency.display_name,
@@ -308,6 +426,7 @@ class AgencyFeedScraper(Scraper):
             published_at=published_at,
             summary=clean_text(summary),
             source_feed=source_feed,
+            content_type=content_type,
         )
 
     def _fetch_google_news_fallback(self, since: datetime) -> list[NewsItem]:
@@ -387,6 +506,70 @@ def _is_electoral_commission_google_news_title(title: str) -> bool:
             "loan summary",
         )
     )
+
+
+def _date_from_html(node: Any) -> datetime | None:
+    for time_node in node.select("time[datetime], time"):
+        value = time_node.get("datetime") or time_node.get_text(" ", strip=True)
+        parsed = parse_datetime_text(value)
+        if parsed:
+            return parsed
+    for meta in node.select(
+        'meta[property="article:published_time"], meta[property="datePublished"], '
+        'meta[name="date"], meta[name="pubdate"]'
+    ):
+        parsed = parse_datetime_text(meta.get("content", ""))
+        if parsed:
+            return parsed
+    for script in node.select('script[type="application/ld+json"]'):
+        try:
+            payload = json.loads(script.string or script.get_text())
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        candidates = payload if isinstance(payload, list) else [payload]
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            for key in ("datePublished", "dateCreated", "dateModified"):
+                parsed = parse_datetime_text(str(candidate.get(key, "")))
+                if parsed:
+                    return parsed
+    text = clean_text(node.get_text(" ", strip=True))
+    match = re.search(
+        r"(?:published|publication|updated|posted)(?:\s+date)?\s*[:\-]?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return parse_datetime_text(match.group(1))
+    return None
+
+
+def _summary_from_html(node: Any) -> str:
+    description = node.select_one(
+        'meta[property="og:description"], meta[name="description"]'
+    )
+    if description:
+        return clean_text(description.get("content", ""))
+    for selector in (".summary", ".description", ".govuk-body", "p"):
+        paragraph = node.select_one(selector)
+        if paragraph:
+            text = clean_text(paragraph.get_text(" ", strip=True))
+            if text:
+                return text
+    return ""
+
+
+def _content_type_for_link(link: str, title: str = "", context: str = "") -> str:
+    value = " ".join((link, title, context)).casefold()
+    path = urlparse(link).path.casefold()
+    if "/guidance/" in path or "/collection/" in path or "guidance" in value:
+        return "guidance"
+    if "/report" in path or "/research/" in path or "report" in value or "research" in value:
+        return "report"
+    if "/publication" in path or "/consultation" in path or "publication" in value or "consultation" in value:
+        return "publication"
+    return "news"
 
 
 def build_scrapers(agencies: tuple[Agency, ...] = AGENCIES) -> list[AgencyFeedScraper]:

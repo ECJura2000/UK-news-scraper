@@ -9,7 +9,7 @@ from pathlib import Path
 from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
 
 
-DATA_FINGERPRINT_VERSION = "v2"
+DATA_FINGERPRINT_VERSION = "v3"
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,7 @@ def make_data_fingerprint(
             "agency": item.agency,
             "agency_en": item.agency_en,
             "unit_category": item.unit_category,
+            "content_type": item.content_type,
             "date": item.date_text,
             "title": item.title,
             "summary": item.summary,

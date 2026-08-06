@@ -38,6 +38,95 @@ def test_electoral_commission_fixture_parser():
     assert items[0].link == "https://www.electoralcommission.org.uk/news/sample"
 
 
+def test_official_page_parser_captures_ncsc_guidance_page():
+    agency = Agency(
+        "國家網路安全中心",
+        "National Cyber Security Centre",
+        "NCSC",
+        "https://www.ncsc.gov.uk/",
+        official_pages=("https://www.ncsc.gov.uk/collection/recovering",),
+    )
+    scraper = AgencyFeedScraper(agency)
+    soup = BeautifulSoup(
+        """
+        <html><head><meta name="description" content="Practical recovery guidance."></head>
+        <body><main><h1>Recovering from a highly disruptive cyber attack</h1>
+        <time datetime="2026-07-28">28 July 2026</time></main></body></html>
+        """,
+        "html.parser",
+    )
+
+    items = scraper._extract_official_page_items(
+        soup,
+        "https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation/recovering",
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+    )
+
+    assert len(items) == 1
+    assert items[0].published_at.date().isoformat() == "2026-07-28"
+    assert items[0].content_type == "guidance"
+    assert items[0].link.endswith("/recovering")
+
+
+def test_official_pages_are_fetched_even_when_rss_has_items(monkeypatch):
+    agency = Agency(
+        "測試機關",
+        "Test Agency",
+        "TEST",
+        "https://official.example",
+        feeds=("https://official.example/feed.xml",),
+        official_pages=("https://official.example/guidance/sample",),
+    )
+    scraper = AgencyFeedScraper(agency)
+    feed = feedparser.parse(
+        """
+        <rss version="2.0"><channel><item>
+        <title>RSS cyber news</title><link>https://official.example/news/rss</link>
+        <pubDate>Tue, 28 Jul 2026 12:00:00 GMT</pubDate>
+        </item></channel></rss>
+        """
+    )
+    calls = []
+    monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.parse_feed", lambda _: feed)
+    monkeypatch.setattr(
+        "UK_news_scraper.scrapers.ministry.registry.get_text",
+        lambda url: calls.append(url) or "<h1>Official guidance</h1><time datetime='2026-07-28'>28 July 2026</time>",
+    )
+
+    items = scraper.fetch(datetime(2026, 7, 1, tzinfo=timezone.utc))
+
+    assert calls == ["https://official.example/guidance/sample"]
+    assert {item.content_type for item in items} == {"news", "guidance"}
+
+
+def test_official_page_failure_is_retained_as_warning_when_rss_succeeds(monkeypatch):
+    agency = Agency(
+        "測試機關",
+        "Test Agency",
+        "TEST",
+        "https://official.example",
+        feeds=("https://official.example/feed.xml",),
+        official_pages=("https://official.example/guidance/sample",),
+    )
+    scraper = AgencyFeedScraper(agency)
+    feed = feedparser.parse(
+        """<rss version="2.0"><channel><item><title>RSS news</title>
+        <link>https://official.example/news/rss</link><pubDate>Tue, 28 Jul 2026 12:00:00 GMT</pubDate>
+        </item></channel></rss>"""
+    )
+    monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.parse_feed", lambda _: feed)
+
+    def fail(_):
+        raise RuntimeError("temporary page failure")
+
+    monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.get_text", fail)
+
+    items = scraper.fetch(datetime(2026, 7, 1, tzinfo=timezone.utc))
+
+    assert len(items) == 1
+    assert scraper.source_warnings
+
+
 def test_commons_rss_fixture_parser(monkeypatch):
     feed = feedparser.parse((FIXTURES / "commons_feed.xml").read_bytes())
     monkeypatch.setattr(research_briefings, "parse_feed", lambda _: feed)

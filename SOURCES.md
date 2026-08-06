@@ -13,14 +13,17 @@
 | UK IPO | UK Intellectual Property Office | [GOV.UK](https://www.gov.uk/government/organisations/intellectual-property-office) | [Atom](https://www.gov.uk/government/organisations/intellectual-property-office.atom) |
 | GDS | Government Digital Service | [GOV.UK](https://www.gov.uk/government/organisations/government-digital-service) | [Atom](https://www.gov.uk/government/organisations/government-digital-service.atom) |
 | Ofcom | Office of Communications | [News and updates](https://www.ofcom.org.uk/news-and-updates) | [RSS](https://www.ofcom.org.uk/news-centre/rss) |
-| NCSC | National Cyber Security Centre | [Homepage](https://www.ncsc.gov.uk/) | [RSS](https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml) |
+| NCSC | National Cyber Security Centre | [Homepage](https://www.ncsc.gov.uk/)；[Guidance collection](https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation) | [RSS](https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml)；官方 Guidance 頁面 |
 | Electoral Commission | Electoral Commission | [Media centre](https://www.electoralcommission.org.uk/news-and-views/media-centre) | HTML；失敗時使用 Google News RSS 備援 |
 | Cabinet Office | Cabinet Office | [GOV.UK](https://www.gov.uk/government/organisations/cabinet-office) | [Atom](https://www.gov.uk/government/organisations/cabinet-office.atom) |
 | NPSA | National Protective Security Authority | [Blog](https://www.npsa.gov.uk/blog) | 官網受阻時使用 Google News RSS 備援 |
 | DBT | Department for Business and Trade | [GOV.UK](https://www.gov.uk/government/organisations/department-for-business-and-trade) | [Atom](https://www.gov.uk/government/organisations/department-for-business-and-trade.atom) |
 | UKRI | UK Research and Innovation | [Homepage](https://www.ukri.org/) | [Feed](https://www.ukri.org/feed/) |
 
-GOV.UK Atom 來源只保留 `/government/news/` 新聞頁，排除 guidance、publication 與 transparency data 等其他更新類型。
+GOV.UK Atom 來源會保留 `/government/news/`、`/guidance/`、
+`/government/publications/`、`/government/consultations/`、研究及統計頁面，
+並在 Excel 的「資料類型」欄區分 `news`、`guidance`、`report` 與 `publication`。
+機關官方索引頁也會作為 RSS 以外的補充來源；只收有明確日期且在查詢期間內的項目。
 
 ## UK Parliament Research Briefings
 

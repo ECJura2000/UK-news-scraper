@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.4 - 2026-08-06
+
+- Added official guidance, report, and publication collection alongside RSS news.
+- Added NCSC disruption-recovery guidance pages and official supplemental indexes for UK agencies.
+- Added content-type labels to Excel output and source warnings for partial official-page failures.
+
 ## 1.2.3 - 2026-08-04
 
 - Synchronized the release line with the latest merged checkout and republished the current source package as the next patch version.

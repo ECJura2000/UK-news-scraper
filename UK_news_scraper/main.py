@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hmac
-import os
 import re
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -26,8 +24,6 @@ from .profiles import load_profile
 from .runtime_lock import LockUnavailable
 
 
-PASSWORD_REQUIRED_AFTER_DAYS = 30
-FIRST_RUN_FILENAME = ".uknews_first_run"
 LOCAL_TIMEZONE = ZoneInfo(DEFAULT_TIMEZONE)
 
 
@@ -89,7 +85,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main(require_trial_password: bool = False) -> None:
+def main() -> None:
     args = parse_args()
     if args.ui:
         from .ui import launch
@@ -100,8 +96,6 @@ def main(require_trial_password: bool = False) -> None:
         _check_runtime()
         return
     now = datetime.now(timezone.utc)
-    if require_trial_password:
-        _require_password_after_trial(now)
     since, until = _resolve_date_range(args, now)
     period_start = _local_date(since)
     period_end = _local_date(until - timedelta(microseconds=1))
@@ -281,30 +275,6 @@ def _date_range_label(since: datetime, until: datetime | None, now: datetime) ->
         end_date = _local_date(now)
     end_label = end_date.isoformat().replace("-", "")
     return f"{start_label}-{end_label}"
-
-
-def _require_password_after_trial(now: datetime, marker_path: Path | None = None) -> None:
-    marker = marker_path or (Path(DEFAULT_OUTPUT_DIR).parent / FIRST_RUN_FILENAME)
-    if not marker.exists():
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(now.date().isoformat(), encoding="utf-8")
-        return
-
-    try:
-        first_run = date.fromisoformat(marker.read_text(encoding="utf-8").strip())
-    except ValueError:
-        first_run = now.date()
-        marker.write_text(first_run.isoformat(), encoding="utf-8")
-
-    if now.date() - first_run <= timedelta(days=PASSWORD_REQUIRED_AFTER_DAYS):
-        return
-
-    password = input(f"程式已使用超過 {PASSWORD_REQUIRED_AFTER_DAYS} 天，請輸入密碼：").strip()
-    expected_password = os.environ.get("UK_NEWS_RUN_PASSWORD")
-    if not expected_password:
-        raise SystemExit("[error] 保護版需要設定 UK_NEWS_RUN_PASSWORD 環境變數。")
-    if not hmac.compare_digest(password, expected_password):
-        raise SystemExit("[error] 密碼錯誤，程式已停止執行。")
 
 
 def _local_midnight(value: date) -> datetime:

@@ -1,0 +1,39 @@
+{
+  "expected": "1275849ff98a32b6fe699c5371daf66ccff7c546e3c75b5d894af95f3c7bcc93",
+  "news": [
+    {
+      "agency": "國家網路安全中心 (NCSC)",
+      "agency_en": "National Cyber Security Centre",
+      "unit_category": "NCSC",
+      "title": "Recovering from a highly disruptive cyber attack",
+      "link": "https://www.ncsc.gov.uk/collection/example",
+      "published_at": "2026-07-28T00:00:00Z",
+      "summary": "Practical guidance.",
+      "source_feed": "https://www.ncsc.gov.uk/collection/example",
+      "matched_topics": ["網路安全/資安"],
+      "matched_keywords": ["cyber"],
+      "general_matched_keywords": ["cyber"],
+      "relevance_score": 5,
+      "content_type": "guidance"
+    }
+  ],
+  "parliament": [
+    {
+      "published_at": "2026-07-29T00:00:00Z",
+      "chamber": "House of Commons",
+      "publisher": "House of Commons Library",
+      "title": "Artificial intelligence regulation",
+      "summary": "A briefing.",
+      "identifier": "CBP-1234",
+      "webpage_url": "https://commonslibrary.parliament.uk/research-briefings/cbp-1234/",
+      "pdf_url": "https://example.test/CBP-1234.pdf",
+      "topics": ["Technology"],
+      "document_type": "Research Briefing",
+      "fetched_from": "Official RSS: fixture",
+      "matched_topics": ["AI"],
+      "matched_keywords": ["artificial intelligence"],
+      "general_matched_keywords": ["artificial intelligence"],
+      "relevance_score": 5
+    }
+  ]
+}

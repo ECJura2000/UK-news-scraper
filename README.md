@@ -71,43 +71,31 @@ python3 -m pip install -r requirement.txt
 
 正式建置與 CI 使用固定版本的 `requirement-lock.txt`，更新依賴後應重新驗證並同步該檔案。
 
-## 打包成免安裝 Python 的執行檔
+## Rust + Tauri 原生預覽版
 
-macOS：
-
-```bash
-./build_macos.sh
-```
-
-Windows：
-
-```bat
-build_windows.bat
-```
-
-Linux：
+v2 使用 Rust 抓取與匯出核心，以及 Tauri 2 + React/TypeScript 桌面介面。Python
+v1.2.4 在平行驗證完成前仍是正式版；原生版本不需要 Python runtime。
 
 ```bash
-./build_linux.sh
+cd native/apps/desktop
+npm ci
+npm run build
+cd ../../..
+cargo build --release --locked -p uk-news-scraper
+target/release/UKNewsScraper --check-runtime
+target/release/UKNewsScraper --ui
 ```
 
-macOS 會產生：
+Windows 的執行檔位於 `target\release\UKNewsScraper.exe`。macOS 與 Linux 位於
+`target/release/UKNewsScraper`。各平台必須在目標作業系統建置，portable ZIP
+上限為 35 MiB。v2 只有單一執行檔，不再提供試用期密碼版本。
 
-- `dist/UKNewsScraper`：原始無密碼版
-- `dist/UKNewsScraper_protected`：第一次執行後 30 天內免密碼，超過 30 天後需輸入密碼
+原生寄送 registry 指令如下；過渡期間舊 Python 指令會在找到原生執行檔時轉送：
 
-Windows 會產生：
-
-- `dist\UKNewsScraper.exe`：原始無密碼版
-- `dist\UKNewsScraper_protected.exe`：第一次執行後 30 天內免密碼，超過 30 天後需輸入密碼
-
-免安裝 Python 的執行檔需在目標系統上各自打包，macOS 不能直接產生可正常使用的 Windows `.exe`。
-
-正式 Release 每個平台只保留一份 portable ZIP。CI 會執行 `--check-runtime`，確認 scraper registry、Excel、RSS 與 HTTP 依賴可由封裝成品載入；單檔不得超過 100 MiB，全部成品合計不得超過 220 MiB。中間 artifacts 只保留 1 天。
-
-Windows 原始無密碼版使用時，可把 `UKNewsScraper.exe` 和 `run_windows.bat` 放在同一個資料夾，從檔案總管雙擊 `run_windows.bat`。
-
-Windows 防盜版版使用時，可把 `UKNewsScraper_protected.exe` 和 `run_windows_protected.bat` 放在同一個資料夾，從檔案總管雙擊 `run_windows_protected.bat`。第一次執行後 30 天內免密碼，超過 30 天後再執行會要求密碼。密碼必須透過 `UK_NEWS_RUN_PASSWORD` 環境變數設定，不會寫死在程式碼中。
+```bash
+UKNewsScraper delivery-registry claim --summary /absolute/report.run.json
+UKNewsScraper delivery-registry complete --delivery-id ID --message-id GMAIL_ID
+```
 
 ```bash
 python3 -m UK_news_scraper --days 14 --output output/本週英國新聞.xlsx
@@ -178,6 +166,18 @@ NPSA 官網目前有 Cloudflare challenge，排程會直接使用 Google News RS
 python3 -m pip install -r requirement-lock.txt -r requirement-dev.txt
 python3 -m pytest -q
 ```
+
+Rust 預覽版升為正式版前，需用相同期間分別執行 Python 與 Rust，並連續三次記錄完全一致的 logical counts 與 fingerprint v3：
+
+```bash
+python3 scripts/compare_parallel_runs.py \
+  --python-summary /absolute/python-report.run.json \
+  --rust-summary /absolute/rust-report.run.json \
+  --history /absolute/parallel-history.json \
+  --require-consecutive 3
+```
+
+若資料來源在兩次抓取之間更新而造成差異，必須用 `--explanation` 留下可稽核原因；有說明的差異仍會中斷連續三次一致門檻。
 
 測試涵蓋日期區間穩定性、共用去重規則、來源狀態、執行摘要、HTTP
 session 重用、翻譯快取、必要 Excel 工作表、結果篩選與排序、取消／來源

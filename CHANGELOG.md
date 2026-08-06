@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0-alpha.1 - 2026-08-06
+
+- Added the parallel Rust core and Tauri 2 + React desktop application.
+- Preserved fingerprint v3, four-sheet Excel, profile and delivery-registry contracts.
+- Added native Guidance, Report, Publication, Parliament and translation-provider support.
+- Removed the separate password-protected executable and all related build assets.
+- Added three-platform native CI and a 35 MiB portable archive gate.
+
 ## 1.2.4 - 2026-08-06
 
 - Added official guidance, report, and publication collection alongside RSS news.

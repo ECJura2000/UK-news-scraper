@@ -18,7 +18,7 @@
 | Cabinet Office | Cabinet Office | [GOV.UK](https://www.gov.uk/government/organisations/cabinet-office) | [Atom](https://www.gov.uk/government/organisations/cabinet-office.atom) |
 | NPSA | National Protective Security Authority | [Blog](https://www.npsa.gov.uk/blog) | 官網受阻時使用 Google News RSS 備援 |
 | DBT | Department for Business and Trade | [GOV.UK](https://www.gov.uk/government/organisations/department-for-business-and-trade) | [Atom](https://www.gov.uk/government/organisations/department-for-business-and-trade.atom) |
-| UKRI | UK Research and Innovation | [Homepage](https://www.ukri.org/) | [Feed](https://www.ukri.org/feed/) |
+| UKRI | UK Research and Innovation | [News](https://www.ukri.org/news/)、[evaluation reports](https://www.ukri.org/who-we-are/how-we-are-doing/evaluation-reports/browse/)、[investment and outputs](https://www.ukri.org/what-we-do/what-we-have-funded/investment-and-outputs-publication/) | [Feed](https://www.ukri.org/feed/) |
 
 GOV.UK Atom 來源會保留 `/government/news/`、`/guidance/`、
 `/government/publications/`、`/government/consultations/`、研究及統計頁面，

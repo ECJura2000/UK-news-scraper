@@ -1,14 +1,27 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_DIR))
-from UK_news_scraper import __version__  # noqa: E402
+
+
+def release_version() -> str:
+    if value := os.environ.get("UK_NEWS_RELEASE_VERSION"):
+        return value
+    cargo = PROJECT_DIR / "Cargo.toml"
+    if cargo.exists():
+        with cargo.open("rb") as source:
+            return str(tomllib.load(source)["workspace"]["package"]["version"])
+    from UK_news_scraper import __version__
+
+    return __version__
 
 
 PLATFORM_LABELS = {
@@ -22,7 +35,7 @@ def package(platform_name: str) -> Path:
     label = PLATFORM_LABELS[platform_name]
     dist_dir = PROJECT_DIR / "dist"
     release_root = dist_dir / "release"
-    folder_name = f"UKNewsScraper-{__version__}-{label}"
+    folder_name = f"UKNewsScraper-{release_version()}-{label}"
     release_dir = release_root / folder_name
     archive = release_root / f"{folder_name}.zip"
 
@@ -35,15 +48,12 @@ def package(platform_name: str) -> Path:
     if platform_name == "windows":
         required = (
             dist_dir / "UKNewsScraper.exe",
-            dist_dir / "UKNewsScraper_protected.exe",
             PROJECT_DIR / "run_windows.bat",
-            PROJECT_DIR / "run_windows_protected.bat",
             PROJECT_DIR / "run_windows_ui.bat",
         )
     else:
         required = (
             dist_dir / "UKNewsScraper",
-            dist_dir / "UKNewsScraper_protected",
         )
 
     missing = [str(path) for path in required if not path.exists()]
@@ -61,7 +71,6 @@ Python is not required.
 Recommended desktop UI: double-click run_windows_ui.bat.
 Command line mode: double-click run_windows.bat and enter a date range.
 You may also run UKNewsScraper.exe directly from Command Prompt or PowerShell.
-The protected edition is optional and uses the existing 30-day trial/password behavior.
 """
     else:
         executable = "./UKNewsScraper"
@@ -70,7 +79,7 @@ The protected edition is optional and uses the existing 30-day trial/password be
 Python is not required.
 
 1. Open a terminal in this folder.
-2. Run: chmod +x UKNewsScraper UKNewsScraper_protected
+2. Run: chmod +x UKNewsScraper
 3. Desktop UI: {executable} --ui
 4. Command line: {executable}
 
@@ -78,7 +87,6 @@ Examples:
   {executable} 30
   {executable} 20160501～20160515
 
-The protected edition is optional and uses the existing 30-day trial/password behavior.
 """
     (release_dir / "README.txt").write_text(instructions, encoding="utf-8")
 

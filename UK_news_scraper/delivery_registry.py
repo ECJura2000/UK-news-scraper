@@ -5,7 +5,11 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 from typing import Any
 
 from .models import RunStatus
@@ -160,6 +164,13 @@ def _atomic_write_json(path: Path, payload) -> None:
 
 
 def main() -> None:
+    native = os.environ.get("UK_NEWS_NATIVE_BIN") or shutil.which("UKNewsScraper")
+    if native and os.environ.get("UK_NEWS_DISABLE_NATIVE_REGISTRY_SHIM") != "1":
+        completed = subprocess.run(
+            [native, "delivery-registry", *sys.argv[1:]],
+            check=False,
+        )
+        raise SystemExit(completed.returncode)
     parser = argparse.ArgumentParser(description="原子管理 UK 新聞郵件 delivery claim。")
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     subparsers = parser.add_subparsers(dest="command", required=True)

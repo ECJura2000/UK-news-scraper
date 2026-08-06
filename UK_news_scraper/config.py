@@ -355,7 +355,11 @@ AGENCIES: tuple[Agency, ...] = (
         short_name="UKRI",
         homepage="https://www.ukri.org/",
         feeds=("https://www.ukri.org/feed/",),
-        official_pages=("https://www.ukri.org/news/", "https://www.ukri.org/publications/"),
+        official_pages=(
+            "https://www.ukri.org/news/",
+            "https://www.ukri.org/who-we-are/how-we-are-doing/evaluation-reports/browse/",
+            "https://www.ukri.org/what-we-do/what-we-have-funded/investment-and-outputs-publication/",
+        ),
         topics=("半導體/量子技術",),
     ),
 )

@@ -1,0 +1,28 @@
+[package]
+name = "uk-news-scraper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "UKNewsScraper"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+chrono-tz = "0.10"
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tokio.workspace = true
+uk-news-app = { path = "../../../crates/uk-news-app" }
+uk-news-core = { path = "../../../crates/uk-news-core" }
+uk-news-export = { path = "../../../crates/uk-news-export" }
+uk-news-sources = { path = "../../../crates/uk-news-sources" }

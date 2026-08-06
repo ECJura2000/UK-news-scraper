@@ -1,14 +1,26 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from UK_news_scraper import __version__  # noqa: E402
+from UK_news_scraper import __version__ as python_version  # noqa: E402
+
+
+def release_version() -> str:
+    if value := os.environ.get("UK_NEWS_RELEASE_VERSION"):
+        return value
+    cargo = ROOT / "Cargo.toml"
+    if cargo.exists():
+        with cargo.open("rb") as source:
+            return str(tomllib.load(source)["workspace"]["package"]["version"])
+    return python_version
 
 REQUIRED_SOURCE_FILES = {
     "AGENTS.md",
@@ -25,8 +37,9 @@ def create_source_archive(
     output_dir: Path,
     *,
     ref: str = "HEAD",
-    version: str = __version__,
+    version: str | None = None,
 ) -> Path:
+    version = version or release_version()
     repo_root = repo_root.resolve()
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

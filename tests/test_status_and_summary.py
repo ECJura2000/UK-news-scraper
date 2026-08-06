@@ -1,8 +1,9 @@
 import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 from UK_news_scraper.main import _run_status
-from UK_news_scraper.models import NewsItem
+from UK_news_scraper.models import NewsItem, ParliamentBriefing
 from UK_news_scraper.run_summary import (
     RunSummary,
     make_data_fingerprint,
@@ -124,3 +125,34 @@ def test_data_fingerprint_is_independent_of_record_order():
     )
 
     assert make_data_fingerprint([first, second], []) == make_data_fingerprint([second, first], [])
+
+
+def test_fingerprint_v3_matches_shared_rust_golden_fixture():
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "fingerprint_v3_golden.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    news = [
+        NewsItem(
+            **{
+                **item,
+                "published_at": datetime.fromisoformat(
+                    item["published_at"].replace("Z", "+00:00")
+                ),
+            }
+        )
+        for item in fixture["news"]
+    ]
+    parliament = [
+        ParliamentBriefing(
+            **{
+                **item,
+                "published_at": datetime.fromisoformat(
+                    item["published_at"].replace("Z", "+00:00")
+                ),
+            }
+        )
+        for item in fixture["parliament"]
+    ]
+    assert make_data_fingerprint(news, parliament) == fixture["expected"]

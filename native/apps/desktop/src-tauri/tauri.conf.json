@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "UK News Scraper",
+  "version": "2.0.0-alpha.1",
+  "identifier": "tw.gov.uk-news-scraper",
+  "build": {"beforeDevCommand":"npm run dev","beforeBuildCommand":"npm run build","devUrl":"http://localhost:1420","frontendDist":"../dist"},
+  "app": {"windows":[{"title":"UK News Scraper","width":1280,"height":820,"minWidth":960,"minHeight":640}]},
+  "bundle": {"active":true,"targets":"all","icon":[]}
+}

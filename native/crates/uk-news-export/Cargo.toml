@@ -1,0 +1,17 @@
+[package]
+name = "uk-news-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+rust_xlsxwriter = { version = "0.90", features = ["chrono"] }
+serde.workspace = true
+serde_json.workspace = true
+uk-news-core = { path = "../uk-news-core" }
+
+[dev-dependencies]
+calamine = "0.30"
+tempfile = "3.23"

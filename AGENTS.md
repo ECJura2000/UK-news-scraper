@@ -18,6 +18,9 @@ Run these checks before claiming a code change is ready:
 .venv/bin/python -m ruff check .
 .venv/bin/python -m compileall -q UK_news_scraper tests scripts
 .venv/bin/python -m UK_news_scraper --check-runtime
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cd native/apps/desktop && npm test && npm run build
 ```
 
 On Windows, use `.\.venv\Scripts\python.exe` instead.

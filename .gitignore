@@ -15,4 +15,8 @@ output/
 *.dmg
 *.exe
 *.run.json
-.uknews_first_run
+*.run.data.json
+target/
+native/apps/desktop/node_modules/
+native/apps/desktop/dist/
+native/apps/desktop/src-tauri/gen/

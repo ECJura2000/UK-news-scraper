@@ -14,18 +14,17 @@ flowchart LR
     H --> I[Delivery registry]
 ```
 
-The scraper keeps external payloads at parser boundaries and converts them into domain
-dataclasses. Excel and run-summary JSON are output DTOs. The delivery registry validates
-the run-summary schema before claiming a send.
+The v2 preview implements the pipeline as a Rust workspace. Python remains the production
+fallback during parallel validation. Both implementations preserve the same Excel,
+fingerprint v3, run-summary, profile, and delivery-registry contracts.
 
 ## Module Responsibilities
 
-- `models.py`: agencies, news, briefings, health, and run-state enums.
-- `scrapers/`: external payload parsing.
-- `dedupe.py`: stable set-based duplicate removal.
-- `excel_exporter.py`: workbook creation and verification.
-- `run_summary.py`: canonical fingerprint and JSON schema validation.
-- `delivery_registry.py`: atomic delivery state transitions.
+- `uk-news-core`: domain models, profile schema, relevance and fingerprint v3.
+- `uk-news-sources`: bounded asynchronous RSS, official-page and Parliament parsing.
+- `uk-news-export`: four-sheet XLSX output with bilingual rows and hyperlinks.
+- `uk-news-app`: orchestration, translation providers, profiles and delivery registry.
+- `native/apps/desktop`: the Tauri binary and React/TypeScript workspace.
 
 ## Data-Structure Choices And Complexity
 
@@ -42,6 +41,7 @@ collide. Sorting records keeps fingerprints independent of source completion ord
 
 ## Error And Retry Policy
 
-`errors.py` separates download, parse, validation, and storage failures. Only
-`DownloadError` enters the second agency-fetch round. See
+Each agency and Parliament source emits independent health state. A supplemental-page
+failure retains successful RSS data and marks the run degraded. Delivery remains gated by
+the atomic claim, explicit Gmail success, and complete transition described in
 `docs/adr/0001-idempotent-delivery-and-retry-policy.md`.

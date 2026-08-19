@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.0-alpha.2 - 2026-08-19
+
+- Replaced the split DSIT and renamed DBT sources with BIST and DCMS successor feeds.
+- Reassigned AI, digital government, online safety, telecoms, and science topics to the responsible departments.
+- Added automatic `DSIT` and `DBT` source migration for existing Python and Rust profiles.
+- Updated `h2` to 4.4.1 and `hpack` to 4.2.0 to address CVE-2026-71554 in the locked Python dependencies.
+
 ## 2.0.0-alpha.1 - 2026-08-06
 
 - Added the parallel Rust core and Tauri 2 + React desktop application.

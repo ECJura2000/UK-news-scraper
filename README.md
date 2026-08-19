@@ -137,10 +137,15 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 
 ## 目前納入機關
 
-- DSIT / AI Safety Institute / ICO / CMA / UK IPO / GDS
+- BIST / DCMS / AI Security Institute / ICO / CMA / UK IPO / GDS
 - Ofcom / NCSC / Electoral Commission
 - Cabinet Office / NPSA
-- DBT / UKRI
+- UKRI
+
+2026 年 7 月 DSIT 職能拆分後，科學、研究與創新新聞改由 BIST 承接；
+電信、線上安全、數位身分與 GDS 相關新聞由 DCMS 承接；AI 策略、
+公部門 AI 採用與 AI Security Institute 由 Cabinet Office 承接。舊自訂
+設定檔中的 `DSIT` 與 `DBT` 來源會自動遷移到相應的新來源。
 
 ## UK Parliament Research Briefings
 

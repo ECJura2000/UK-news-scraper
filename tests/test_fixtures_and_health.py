@@ -172,10 +172,10 @@ def test_health_warning_degrades_run():
         items=[],
         statuses=[
             AgencyFetchStatus(
-                agency_name="DSIT",
-                source_name="DSIT",
+                agency_name="BIST",
+                source_name="BIST",
                 success=True,
-                warning="DSIT 筆數異常",
+                warning="BIST 筆數異常",
             )
         ],
     )
@@ -184,7 +184,7 @@ def test_health_warning_degrades_run():
     status, warnings = _run_status(ministry, parliament)
 
     assert status == "degraded"
-    assert "DSIT 筆數異常" in warnings
+    assert "BIST 筆數異常" in warnings
 
 
 def test_stale_critical_parliament_source_has_warning():
@@ -259,4 +259,4 @@ def test_low_frequency_source_does_not_warn_for_zero_items():
     since = datetime.now(timezone.utc) - timedelta(days=14)
 
     assert _health_warning("AISI", [], since) == ""
-    assert "低於健康門檻" in _health_warning("DSIT", [], since)
+    assert "低於健康門檻" in _health_warning("BIST", [], since)

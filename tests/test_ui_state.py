@@ -16,7 +16,7 @@ def _item(
     *,
     score: int,
     published: date,
-    agency: str = "DSIT",
+    agency: str = "BIST",
     topics: list[str] | None = None,
     core: list[str] | None = None,
 ) -> NewsItem:
@@ -66,12 +66,12 @@ def test_result_filters_cover_score_date_topic_and_sorting():
 
 def test_failed_sources_map_parliament_health_to_profile_source():
     health = [
-        SourceHealth("DSIT", True, False, 0, 1.0, warning="failed"),
+        SourceHealth("BIST", True, False, 0, 1.0, warning="failed"),
         SourceHealth("Commons Library RSS", True, True, 0, 1.0, warning="empty"),
         SourceHealth("ICO", True, True, 2, 1.0),
     ]
 
-    assert failed_source_ids(health) == ("DSIT", "UK Parliament")
+    assert failed_source_ids(health) == ("BIST", "UK Parliament")
 
 
 def test_history_ignores_invalid_summaries_and_orders_newest_first(tmp_path):

@@ -18,6 +18,10 @@ from .config import AGENCIES, TOPIC_RULES
 PROFILE_SCHEMA_VERSION = 1
 DEFAULT_PROFILE_ID = "uk-tech-law"
 PARLIAMENT_SOURCE_ID = "UK Parliament"
+SOURCE_ID_MIGRATIONS = {
+    "DSIT": ("BIST", "DCMS", "Cabinet Office"),
+    "DBT": ("BIST",),
+}
 
 
 class KeywordStrength(str, Enum):
@@ -351,6 +355,15 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
         version = 1
     if version != PROFILE_SCHEMA_VERSION:
         raise ValueError(f"無法遷移設定檔版本：{version}")
+    selected_sources = migrated.get("selected_sources")
+    if isinstance(selected_sources, list):
+        expanded_sources: list[object] = []
+        for source in selected_sources:
+            replacements = SOURCE_ID_MIGRATIONS.get(str(source), (source,))
+            for replacement in replacements:
+                if replacement not in expanded_sources:
+                    expanded_sources.append(replacement)
+        migrated["selected_sources"] = expanded_sources
     return migrated
 
 

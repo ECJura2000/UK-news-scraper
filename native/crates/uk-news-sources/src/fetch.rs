@@ -378,7 +378,7 @@ async fn google_news_fallback(
 
 fn health_warning(source: &str, items: &[NewsItem], since: DateTime<Utc>) -> String {
     let minimum = match source {
-        "DSIT" | "Ofcom" | "Cabinet Office" | "DBT" => 1,
+        "BIST" | "DCMS" | "Ofcom" | "Cabinet Office" => 1,
         _ => 0,
     };
     if items.len() < minimum {
@@ -388,7 +388,7 @@ fn health_warning(source: &str, items: &[NewsItem], since: DateTime<Utc>) -> Str
         );
     }
     let max_age = match source {
-        "DSIT" | "Ofcom" | "Cabinet Office" | "DBT" => Some(14),
+        "BIST" | "DCMS" | "Ofcom" | "Cabinet Office" => Some(14),
         "CMA" | "NCSC" => Some(30),
         "UK IPO" | "ICO" | "Electoral Commission" => Some(45),
         "AISI" | "GDS" | "NPSA" | "UKRI" => Some(60),

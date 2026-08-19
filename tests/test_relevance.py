@@ -67,7 +67,7 @@ def test_custom_profile_uses_three_strength_levels_and_configured_threshold():
         name="Custom policy",
         description="",
         version=1,
-        selected_sources=("DSIT",),
+        selected_sources=("BIST",),
         topics=(
             ProfileTopic(
                 "Policy",
@@ -100,7 +100,7 @@ def test_supporting_keyword_alone_can_be_excluded_by_threshold():
         name="Support test",
         description="",
         version=1,
-        selected_sources=("DSIT",),
+        selected_sources=("BIST",),
         topics=(
             ProfileTopic(
                 "Policy",

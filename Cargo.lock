@@ -4808,7 +4808,7 @@ dependencies = [
 
 [[package]]
 name = "uk-news-app"
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4830,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "uk-news-core"
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 dependencies = [
  "chrono",
  "serde",
@@ -4841,7 +4841,7 @@ dependencies = [
 
 [[package]]
 name = "uk-news-export"
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "calamine",
@@ -4855,7 +4855,7 @@ dependencies = [
 
 [[package]]
 name = "uk-news-scraper"
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4876,7 +4876,7 @@ dependencies = [
 
 [[package]]
 name = "uk-news-sources"
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 dependencies = [
  "anyhow",
  "chrono",

@@ -6,7 +6,8 @@ import subprocess
 SOURCES = {
     "GOV.UK": "https://www.gov.uk/search/news-and-communications",
     "UK Parliament": "https://commonslibrary.parliament.uk/feed/",
-    "DSIT": "https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology",
+    "BIST": "https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade",
+    "DCMS": "https://www.gov.uk/government/organisations/department-for-culture-media-and-sport",
 }
 
 

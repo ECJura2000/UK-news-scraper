@@ -21,9 +21,9 @@ from UK_news_scraper.run_summary import RunSummary
 
 def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp_path):
     item = NewsItem(
-        "科學、創新和技術部 (DSIT)",
-        "Department for Science, Innovation and Technology",
-        "DSIT",
+        "商業、創新、科學及貿易部 (BIST)",
+        "Department for Business, Innovation, Science and Trade",
+        "BIST",
         "Digital health framework announced",
         "https://example.com/news",
         datetime(2026, 7, 20, tzinfo=timezone.utc),
@@ -33,7 +33,7 @@ def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp
         name="數位健康",
         description="",
         version=1,
-        selected_sources=("DSIT",),
+        selected_sources=("BIST",),
         topics=(
             ProfileTopic(
                 "數位健康",
@@ -46,8 +46,8 @@ def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp
         items=[item],
         statuses=[
             AgencyFetchStatus(
-                agency_name="DSIT",
-                source_name="DSIT",
+                agency_name="BIST",
+                source_name="BIST",
                 success=True,
                 item_count=1,
             )
@@ -107,12 +107,12 @@ def test_application_service_can_cancel_before_fetch(monkeypatch, tmp_path):
 
 
 def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypatch, tmp_path):
-    old_dsit = NewsItem(
-        "科學、創新和技術部 (DSIT)",
-        "Department for Science, Innovation and Technology",
-        "DSIT",
-        "Old DSIT item",
-        "https://example.com/old-dsit",
+    old_bist = NewsItem(
+        "商業、創新、科學及貿易部 (BIST)",
+        "Department for Business, Innovation, Science and Trade",
+        "BIST",
+        "Old BIST item",
+        "https://example.com/old-bist",
         datetime(2026, 7, 20, tzinfo=timezone.utc),
     )
     ico = NewsItem(
@@ -123,12 +123,12 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
         "https://example.com/ico",
         datetime(2026, 7, 21, tzinfo=timezone.utc),
     )
-    new_dsit = NewsItem(
-        old_dsit.agency,
-        old_dsit.agency_en,
-        old_dsit.unit_category,
-        "New DSIT item",
-        "https://example.com/new-dsit",
+    new_bist = NewsItem(
+        old_bist.agency,
+        old_bist.agency_en,
+        old_bist.unit_category,
+        "New BIST item",
+        "https://example.com/new-bist",
         datetime(2026, 7, 22, tzinfo=timezone.utc),
     )
     profile = FilterProfile(
@@ -136,7 +136,7 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
         name="Retry",
         description="",
         version=1,
-        selected_sources=("DSIT", "ICO"),
+        selected_sources=("BIST", "ICO"),
         topics=(
             ProfileTopic(
                 "Policy",
@@ -156,11 +156,11 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
         parliament_count=0,
         filtered_parliament_count=0,
         status=RunStatus.DEGRADED,
-        warnings=("DSIT failed",),
+        warnings=("BIST failed",),
         data_fingerprint="fingerprint",
         delivery_id="delivery",
         source_health=(
-            SourceHealth("DSIT", True, False, 0, 1.0, warning="failed"),
+            SourceHealth("BIST", True, False, 0, 1.0, warning="failed"),
             SourceHealth("ICO", True, True, 1, 1.0),
         ),
         profile_id=profile.profile_id,
@@ -171,19 +171,19 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
         workbook_path=tmp_path / "base.xlsx",
         summary_path=tmp_path / "base.run.json",
         summary=base_summary,
-        all_items=(old_dsit, ico),
-        filtered_items=(old_dsit, ico),
+        all_items=(old_bist, ico),
+        filtered_items=(old_bist, ico),
         parliament_items=(),
         filtered_parliament_items=(),
     )
     monkeypatch.setattr(
         "UK_news_scraper.app_service.fetch_all_with_status",
         lambda since, max_workers, agencies: FetchAllResult(
-            items=[new_dsit],
+        items=[new_bist],
             statuses=[
                 AgencyFetchStatus(
-                    agency_name="DSIT",
-                    source_name="DSIT",
+                    agency_name="BIST",
+                    source_name="BIST",
                     success=True,
                     item_count=1,
                 )
@@ -204,11 +204,11 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
             period_end=date(2026, 7, 27),
             output_dir=tmp_path,
             profile=profile,
-            retry_source_ids=("DSIT",),
+            retry_source_ids=("BIST",),
             base_result=base,
         )
     )
 
-    assert {item.title for item in result.all_items} == {"New DSIT item", "ICO item"}
+    assert {item.title for item in result.all_items} == {"New BIST item", "ICO item"}
     assert result.summary.status == RunStatus.COMPLETE
-    assert [health.source for health in result.summary.source_health] == ["DSIT", "ICO"]
+    assert [health.source for health in result.summary.source_health] == ["BIST", "ICO"]

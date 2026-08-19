@@ -25,7 +25,7 @@ def _custom_profile() -> FilterProfile:
         name="數位健康",
         description="測試設定",
         version=1,
-        selected_sources=("DSIT",),
+        selected_sources=("BIST",),
         topics=(
             ProfileTopic(
                 "數位健康",
@@ -85,6 +85,15 @@ def test_legacy_profile_collection_is_migrated(tmp_path):
     assert loaded["digital-health"].version == 1
     assert keyword.phrase == "digital health"
     assert keyword.strength is KeywordStrength.GENERAL
+
+
+def test_split_dsit_sources_are_migrated_in_current_profiles():
+    payload = profile_to_dict(_custom_profile())
+    payload["selected_sources"] = ["DSIT", "DBT", "Cabinet Office"]
+
+    migrated = profile_from_dict(payload)
+
+    assert migrated.selected_sources == ("BIST", "DCMS", "Cabinet Office")
 
 
 def test_corrupt_profile_file_is_quarantined_and_default_is_loaded(tmp_path):

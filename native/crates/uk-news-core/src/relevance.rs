@@ -157,7 +157,7 @@ mod tests {
             name: "Custom".into(),
             description: String::new(),
             version: 1,
-            selected_sources: vec!["DSIT".into()],
+            selected_sources: vec!["BIST".into()],
             topics: vec![ProfileTopic {
                 name: "Policy".into(),
                 keywords: vec![

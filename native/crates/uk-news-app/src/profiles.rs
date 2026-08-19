@@ -165,7 +165,8 @@ pub fn default_profile() -> FilterProfile {
         description: "英國科技、AI、資料治理、平台、資安、半導體與量子政策觀測".into(),
         version: PROFILE_SCHEMA_VERSION,
         selected_sources: [
-            "DSIT",
+            "BIST",
+            "DCMS",
             "AISI",
             "ICO",
             "CMA",
@@ -176,7 +177,6 @@ pub fn default_profile() -> FilterProfile {
             "Electoral Commission",
             "Cabinet Office",
             "NPSA",
-            "DBT",
             "UKRI",
             "UK Parliament",
         ]
@@ -212,8 +212,9 @@ pub fn load_profile(value: Option<&str>) -> Result<FilterProfile> {
     };
     let path = Path::new(value);
     if path.exists() {
-        let p: FilterProfile =
+        let mut p: FilterProfile =
             serde_json::from_str(&fs::read_to_string(path)?).context("parse profile JSON")?;
+        migrate_source_ids(&mut p);
         validate_profile(&p)?;
         Ok(p)
     } else {
@@ -302,7 +303,8 @@ fn load_profiles_from(path: &Path) -> Result<Vec<FilterProfile>> {
     if payload.schema_version > PROFILE_SCHEMA_VERSION {
         anyhow::bail!("不支援的設定檔集合版本：{}", payload.schema_version)
     }
-    for p in payload.profiles {
+    for mut p in payload.profiles {
+        migrate_source_ids(&mut p);
         validate_profile(&p)?;
         if profiles.iter().any(|x| x.profile_id == p.profile_id) {
             anyhow::bail!("設定檔 ID 重複：{}", p.profile_id)
@@ -310,6 +312,22 @@ fn load_profiles_from(path: &Path) -> Result<Vec<FilterProfile>> {
         profiles.push(p)
     }
     Ok(profiles)
+}
+fn migrate_source_ids(profile: &mut FilterProfile) {
+    let mut migrated = Vec::new();
+    for source in &profile.selected_sources {
+        let replacements: &[&str] = match source.as_str() {
+            "DSIT" => &["BIST", "DCMS", "Cabinet Office"],
+            "DBT" => &["BIST"],
+            _ => &[source.as_str()],
+        };
+        for replacement in replacements {
+            if !migrated.iter().any(|existing| existing == replacement) {
+                migrated.push((*replacement).to_string());
+            }
+        }
+    }
+    profile.selected_sources = migrated;
 }
 pub fn load_profiles_with_recovery() -> ProfileLoadReport {
     let path = profiles_path();
@@ -504,7 +522,32 @@ mod tests {
     fn default_profile_hash_matches_python_contract() {
         assert_eq!(
             profile_hash(&default_profile()),
-            "4155af3e893e9fdf2ccab4361e87548321ce62a2a7032de7ebb121c5bd72c915"
+            "906df234092f981878c78249aba795725dc21c538492acde8450aee341bc13dc"
+        );
+    }
+
+    #[test]
+    fn migrates_split_dsit_sources_in_saved_profiles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profiles.json");
+        let mut profile = default_profile();
+        profile.profile_id = "legacy-sources".into();
+        profile.selected_sources = vec!["DSIT".into(), "DBT".into(), "Cabinet Office".into()];
+        fs::write(
+            &path,
+            serde_json::to_string(&ProfileCollection {
+                schema_version: PROFILE_SCHEMA_VERSION,
+                profiles: vec![profile],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let profiles = load_profiles_from(&path).unwrap();
+
+        assert_eq!(
+            profiles[1].selected_sources,
+            vec!["BIST", "DCMS", "Cabinet Office"]
         );
     }
 

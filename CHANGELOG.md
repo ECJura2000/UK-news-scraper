@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Replaced the split DSIT and renamed DBT sources with BIST and DCMS successor feeds.
+- Reassigned AI, digital government, online safety, telecoms, and science topics to the responsible departments.
+- Added automatic `DSIT` and `DBT` source migration for existing Python and Rust profiles.
+
 ## 2.0.0-alpha.1 - 2026-08-06
 
 - Added the parallel Rust core and Tauri 2 + React desktop application.

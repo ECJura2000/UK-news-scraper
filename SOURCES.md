@@ -6,8 +6,9 @@
 
 | 簡稱 | 機關 | 官方首頁／新聞頁 | RSS／Atom |
 | --- | --- | --- | --- |
-| DSIT | Department for Science, Innovation and Technology | [GOV.UK](https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology) | [Atom](https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology.atom) |
-| AISI | AI Safety Institute | [GOV.UK](https://www.gov.uk/government/organisations/ai-safety-institute) | [Atom](https://www.gov.uk/government/organisations/ai-safety-institute.atom) |
+| BIST | Department for Business, Innovation, Science and Trade | [GOV.UK](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade) | [Atom](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade.atom) |
+| DCMS | Department for Digital, Culture, Media and Sport | [GOV.UK current department page](https://www.gov.uk/government/organisations/department-for-culture-media-and-sport) | [Atom](https://www.gov.uk/government/organisations/department-for-culture-media-and-sport.atom) |
+| AISI | AI Security Institute | [GOV.UK](https://www.gov.uk/government/organisations/ai-safety-institute) | [Atom](https://www.gov.uk/government/organisations/ai-safety-institute.atom) |
 | ICO | Information Commissioner's Office | [News and blogs](https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/) | 網站自動發現或 HTML |
 | CMA | Competition and Markets Authority | [GOV.UK](https://www.gov.uk/government/organisations/competition-and-markets-authority) | [Atom](https://www.gov.uk/government/organisations/competition-and-markets-authority.atom) |
 | UK IPO | UK Intellectual Property Office | [GOV.UK](https://www.gov.uk/government/organisations/intellectual-property-office) | [Atom](https://www.gov.uk/government/organisations/intellectual-property-office.atom) |
@@ -17,8 +18,13 @@
 | Electoral Commission | Electoral Commission | [Media centre](https://www.electoralcommission.org.uk/news-and-views/media-centre) | HTML；失敗時使用 Google News RSS 備援 |
 | Cabinet Office | Cabinet Office | [GOV.UK](https://www.gov.uk/government/organisations/cabinet-office) | [Atom](https://www.gov.uk/government/organisations/cabinet-office.atom) |
 | NPSA | National Protective Security Authority | [Blog](https://www.npsa.gov.uk/blog) | 官網受阻時使用 Google News RSS 備援 |
-| DBT | Department for Business and Trade | [GOV.UK](https://www.gov.uk/government/organisations/department-for-business-and-trade) | [Atom](https://www.gov.uk/government/organisations/department-for-business-and-trade.atom) |
 | UKRI | UK Research and Innovation | [News](https://www.ukri.org/news/)、[evaluation reports](https://www.ukri.org/who-we-are/how-we-are-doing/evaluation-reports/browse/)、[investment and outputs](https://www.ukri.org/what-we-do/what-we-have-funded/investment-and-outputs-publication/) | [Feed](https://www.ukri.org/feed/) |
+
+2026 年 7 月的政府組織調整將 DSIT 職能重新分配：BIST 承接科學、研究與
+創新；DCMS 承接電信、線上安全、數位身分與 GDS；Cabinet Office 承接
+AI 策略、公部門 AI 採用與 AI Security Institute。程式使用仍持續更新的
+現行 DCMS GOV.UK slug，不使用標示為 2017 至 2023 年且已撤回的舊
+`department-for-digital-culture-media-sport` feed。
 
 GOV.UK Atom 來源會保留 `/government/news/`、`/guidance/`、
 `/government/publications/`、`/government/consultations/`、研究及統計頁面，

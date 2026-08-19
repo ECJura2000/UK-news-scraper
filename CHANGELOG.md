@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0-alpha.3 - 2026-08-20
+
+- Updated the live source smoke gate to verify the BIST and DCMS successor department pages instead of the former DSIT page.
+- Added regression coverage to keep retired DSIT checks out of the source-health workflow.
+
 ## 2.0.0-alpha.2 - 2026-08-19
 
 - Replaced the split DSIT and renamed DBT sources with BIST and DCMS successor feeds.

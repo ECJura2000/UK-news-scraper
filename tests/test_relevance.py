@@ -111,3 +111,84 @@ def test_supporting_keyword_alone_can_be_excluded_by_threshold():
     )
 
     assert assess_relevance("Technology update", "", profile).included is False
+
+
+def test_supporting_keyword_repeated_in_title_and_summary_counts_once():
+    profile = FilterProfile(
+        profile_id="support-repeat-test",
+        name="Support repeat test",
+        description="",
+        version=1,
+        selected_sources=("BIST",),
+        topics=(
+            ProfileTopic(
+                "Policy",
+                (KeywordDefinition("technology", KeywordStrength.SUPPORTING),),
+            ),
+        ),
+        minimum_score=3,
+    )
+
+    assessment = assess_relevance(
+        "Technology update",
+        "Technology programme details.",
+        profile,
+    )
+
+    assert assessment.score == 2
+    assert assessment.included is False
+
+
+def test_overlapping_keywords_keep_the_longest_phrase():
+    item = _item("GOV.UK One Login roadmap published")
+
+    filtered = apply_topic_filter([item])
+
+    assert filtered == [item]
+    assert item.title_matched_keywords == ["GOV.UK One Login"]
+    assert "One Login" not in item.matched_keywords
+
+
+def test_summary_boilerplate_is_removed_before_scoring():
+    profile = FilterProfile(
+        profile_id="boilerplate-test",
+        name="Boilerplate test",
+        description="",
+        version=1,
+        selected_sources=("BIST",),
+        topics=(
+            ProfileTopic(
+                "Policy",
+                (KeywordDefinition("technology", KeywordStrength.GENERAL),),
+            ),
+        ),
+        minimum_score=3,
+    )
+
+    assessment = assess_relevance(
+        "Annual report published",
+        "The Department for Business and Trade is responsible for technology policy.",
+        profile,
+    )
+
+    assert assessment.score == 0
+    assert assessment.included is False
+
+
+def test_agency_name_in_title_does_not_create_policy_match():
+    item = _item("Department for Business, Innovation, Science and Trade")
+
+    assert apply_topic_filter([item]) == []
+
+
+def test_recent_false_negative_terms_are_in_default_profile():
+    items = [
+        _item("Digital sovereignty and public services", link="https://example.com/digital-sovereignty"),
+        _item("Digital ID in the UK", link="https://example.com/digital-id"),
+        _item("Illegal intimate images and deepfakes", link="https://example.com/deepfakes"),
+        _item("Mobile platform conduct requirements", link="https://example.com/mobile-platforms"),
+    ]
+
+    filtered = apply_topic_filter(items)
+
+    assert {item.title for item in filtered} == {item.title for item in items}

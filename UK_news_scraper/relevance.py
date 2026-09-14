@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from .models import NewsItem, ParliamentBriefing
 from .profiles import FilterProfile, KeywordStrength, default_profile
-from .scrapers.ministry.utils.text import keyword_in_text, normalize_for_match
+from .scrapers.ministry.utils.text import clean_text, keyword_in_text, normalize_for_match
 
 
 TITLE_WEIGHTS = {
@@ -17,6 +18,27 @@ SUMMARY_WEIGHTS = {
     KeywordStrength.GENERAL: 3,
     KeywordStrength.SUPPORTING: 1,
 }
+BOILERPLATE_PATTERNS = (
+    " is the uk's communications regulator",
+    " is the uk's independent authority",
+    " is responsible for ",
+    "we are responsible for",
+    "find out more about ",
+    "follow us on ",
+    "subscribe to ",
+    "contact the press office",
+    "published by ",
+)
+BOILERPLATE_PHRASES = (
+    "Department for Business, Innovation, Science and Trade",
+    "Department for Science, Innovation and Technology",
+    "Department for Digital, Culture, Media and Sport",
+    "Department for Science, Innovation & Technology",
+    "Department for Culture, Media and Sport",
+    "Government Digital Service",
+    "AI Security Institute",
+    "AI Safety Institute",
+)
 
 
 @dataclass(frozen=True)
@@ -41,33 +63,35 @@ def assess_relevance(
     profile: FilterProfile | None = None,
 ) -> RelevanceAssessment:
     active_profile = profile or default_profile()
-    normalized_title = normalize_for_match(title)
-    normalized_summary = normalize_for_match(summary)
-    title_strengths: dict[str, str] = {}
-    summary_strengths: dict[str, str] = {}
-    matched_topics: set[str] = set()
+    normalized_title = normalize_for_match(_strip_boilerplate(title))
+    normalized_summary = normalize_for_match(_strip_boilerplate(summary))
+    title_matches: list[tuple[str, str, KeywordStrength]] = []
+    summary_matches: list[tuple[str, str, KeywordStrength]] = []
 
     for topic in active_profile.topics:
-        topic_matched = False
         for keyword in topic.keywords:
             if keyword_in_text(keyword.phrase, normalized_title):
-                title_strengths[keyword.phrase] = keyword.strength.value
-                topic_matched = True
+                title_matches.append((topic.name, keyword.phrase, keyword.strength))
             if keyword_in_text(keyword.phrase, normalized_summary):
-                summary_strengths[keyword.phrase] = keyword.strength.value
-                topic_matched = True
-        if topic_matched:
-            matched_topics.add(topic.name)
+                summary_matches.append((topic.name, keyword.phrase, keyword.strength))
+
+    title_topics, title_strengths = _select_non_overlapping_matches(title_matches)
+    summary_topics, summary_strengths = _select_non_overlapping_matches(summary_matches)
+    matched_topics = title_topics | summary_topics
 
     score = sum(
         TITLE_WEIGHTS[KeywordStrength(strength)]
         for strength in title_strengths.values()
     )
+    distinct_keywords = set(title_strengths) | set(summary_strengths)
     score += sum(
         SUMMARY_WEIGHTS[KeywordStrength(strength)]
-        for strength in summary_strengths.values()
+        for keyword, strength in summary_strengths.items()
+        if not (
+            KeywordStrength(strength) is KeywordStrength.SUPPORTING
+            and keyword in title_strengths
+        )
     )
-    distinct_keywords = set(title_strengths) | set(summary_strengths)
     if len({keyword.casefold() for keyword in distinct_keywords}) >= 2:
         score += 1
     if len(matched_topics) >= 2:
@@ -131,3 +155,45 @@ def relevance_level(score: int) -> str:
     if score >= 5:
         return "中"
     return "低"
+
+
+def _select_non_overlapping_matches(
+    matches: list[tuple[str, str, KeywordStrength]],
+) -> tuple[set[str], dict[str, str]]:
+    selected: list[tuple[str, str, KeywordStrength, str]] = []
+    for topic, phrase, strength in sorted(
+        matches,
+        key=lambda match: (-len(_normalized_phrase(match[1])), match[1].casefold()),
+    ):
+        normalized_phrase = _normalized_phrase(phrase)
+        if any(_phrase_contains(existing, normalized_phrase) for *_rest, existing in selected):
+            continue
+        selected.append((topic, phrase, strength, normalized_phrase))
+    return (
+        {topic for topic, *_rest in selected},
+        {phrase: strength.value for _topic, phrase, strength, _normalized in selected},
+    )
+
+
+def _normalized_phrase(phrase: str) -> str:
+    return normalize_for_match(phrase).strip()
+
+
+def _phrase_contains(longer: str, shorter: str) -> bool:
+    return longer == shorter or keyword_in_text(shorter, f" {longer} ")
+
+
+def _strip_boilerplate(summary: str) -> str:
+    text = clean_text(summary)
+    if not text:
+        return ""
+    for phrase in BOILERPLATE_PHRASES:
+        text = re.sub(re.escape(phrase), " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    retained = [
+        sentence
+        for sentence in sentences
+        if not any(pattern in sentence.casefold() for pattern in BOILERPLATE_PATTERNS)
+    ]
+    return " ".join(retained).strip()

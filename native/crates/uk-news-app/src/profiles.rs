@@ -76,10 +76,12 @@ const TOPICS: [(&str, &[&str]); 6] = [
             "standard contractual clauses",
             "data use",
             "data access",
+            "digital sovereignty",
             "open data",
             "data reuse",
             "data reuse policy",
             "Open Government Data Framework",
+            "Digital ID",
             "digital identity",
             "trust framework",
             "GOV.UK One Login",
@@ -95,9 +97,15 @@ const TOPICS: [(&str, &[&str]); 6] = [
             "platform",
             "illegal content",
             "child safety",
+            "social media",
+            "social media ban",
+            "deepfake",
+            "deepfakes",
+            "illegal intimate images",
             "recommendation algorithm",
             "algorithm transparency",
             "media plurality",
+            "media green paper",
             "broadcast impartiality",
             "online influence transparency",
             "disinformation",
@@ -105,6 +113,8 @@ const TOPICS: [(&str, &[&str]); 6] = [
             "foreign information manipulation",
             "electoral information manipulation",
             "digital markets",
+            "mobile platform",
+            "mobile platforms",
             "Digital Markets Competition and Consumers Act",
             "Strategic Market Status",
             "SMS",
@@ -522,7 +532,7 @@ mod tests {
     fn default_profile_hash_matches_python_contract() {
         assert_eq!(
             profile_hash(&default_profile()),
-            "906df234092f981878c78249aba795725dc21c538492acde8450aee341bc13dc"
+            "a7423bfa69974665ddc9ac8565063929cdd43fbec350152ad1a32756aaa84bd5"
         );
     }
 

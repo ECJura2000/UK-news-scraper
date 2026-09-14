@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0-alpha.4 - 2026-09-14
+## 2.1.0 - 2026-09-14
 
 - Improved relevance filtering with repeated-signal deduplication, boilerplate removal, longest-keyword matching, and additional digital sovereignty, Digital ID, and deepfake signals.
 - Kept Python and Rust relevance policies synchronized and added regression coverage for the new scoring behavior.

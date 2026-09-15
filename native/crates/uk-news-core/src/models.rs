@@ -63,7 +63,7 @@ impl Agency {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NewsItem {
     pub agency: String,
     pub agency_en: String,
@@ -94,9 +94,21 @@ pub struct NewsItem {
     #[serde(default)]
     pub summary_keyword_strengths: BTreeMap<String, String>,
     #[serde(default)]
-    pub relevance_score: i32,
+    pub relevance_score: f64,
     #[serde(default)]
     pub relevance_level: String,
+    #[serde(default)]
+    pub boolean_score: i32,
+    #[serde(default)]
+    pub bm25_score: f64,
+    #[serde(default)]
+    pub bm25_topic_scores: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub matched_synonyms: Vec<String>,
+    #[serde(default)]
+    pub publisher_organisation: String,
+    #[serde(default)]
+    pub responsibility_owner: String,
     #[serde(default)]
     pub content_type: ContentType,
 }
@@ -107,7 +119,7 @@ impl NewsItem {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParliamentBriefing {
     pub published_at: DateTime<Utc>,
     pub chamber: String,
@@ -139,13 +151,28 @@ pub struct ParliamentBriefing {
     #[serde(default)]
     pub supporting_matched_keywords: Vec<String>,
     #[serde(default)]
-    pub relevance_score: i32,
+    pub relevance_score: f64,
     #[serde(default)]
     pub relevance_level: String,
+    #[serde(default)]
+    pub boolean_score: i32,
+    #[serde(default)]
+    pub bm25_score: f64,
+    #[serde(default)]
+    pub bm25_topic_scores: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub matched_synonyms: Vec<String>,
+    #[serde(default = "default_parliament_organisation")]
+    pub publisher_organisation: String,
+    #[serde(default = "default_parliament_organisation")]
+    pub responsibility_owner: String,
 }
 
 fn default_document_type() -> String {
     "Research Briefing".into()
+}
+fn default_parliament_organisation() -> String {
+    "UK Parliament".into()
 }
 impl ParliamentBriefing {
     pub fn date_text(&self) -> String {
@@ -196,6 +223,22 @@ pub struct RunSummary {
     pub minimum_score: i32,
     #[serde(default = "default_calendar")]
     pub excel_date_calendar: String,
+    #[serde(default = "default_filter_method")]
+    pub filter_method: String,
+    #[serde(default)]
+    pub organisation_registry_version: String,
+    #[serde(default)]
+    pub organisation_changes: Vec<String>,
+    #[serde(default)]
+    pub transitional_sources: Vec<String>,
+    #[serde(default = "default_audit_status")]
+    pub organisation_audit_status: String,
+    #[serde(default)]
+    pub organisation_modules: Vec<crate::OrganisationModuleSummary>,
+    #[serde(default)]
+    pub organisation_module_errors: Vec<String>,
+    #[serde(default)]
+    pub organisation_registry_hash: String,
 }
 
 fn default_profile_id() -> String {
@@ -205,11 +248,17 @@ fn default_profile_name() -> String {
     "UK 科技法制".into()
 }
 fn default_profile_version() -> u32 {
-    1
+    2
 }
 fn default_minimum_score() -> i32 {
     3
 }
 fn default_calendar() -> String {
     "gregorian".into()
+}
+fn default_filter_method() -> String {
+    "weighted_keywords".into()
+}
+fn default_audit_status() -> String {
+    "not_run".into()
 }

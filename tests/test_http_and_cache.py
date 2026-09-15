@@ -3,12 +3,26 @@ import asyncio
 from types import SimpleNamespace
 
 from UK_news_scraper.excel_exporter import _translate_titles_async
-from UK_news_scraper.http.async_client import get_session
+from UK_news_scraper.http.async_client import get_session, get_text
 from UK_news_scraper.translation_cache import load_translations, save_translations
 
 
 def test_http_session_is_reused_in_same_thread():
     assert get_session() is get_session()
+
+
+def test_any_403_retries_with_browser_tls(monkeypatch):
+    response = SimpleNamespace(status_code=403, text="Site Unavailable")
+    monkeypatch.setattr(
+        "UK_news_scraper.http.async_client.get_session",
+        lambda: SimpleNamespace(get=lambda *args, **kwargs: response),
+    )
+    monkeypatch.setattr(
+        "UK_news_scraper.http.async_client._get_text_with_browser_tls",
+        lambda url, timeout: "official content",
+    )
+
+    assert get_text("https://official.example") == "official content"
 
 
 def test_translation_cache_round_trip(tmp_path, monkeypatch):

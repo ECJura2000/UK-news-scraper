@@ -23,6 +23,17 @@ Deployment, source maintenance, and delivery recovery are documented in [docs/MA
 
 ## 使用方式
 
+### 機關 JSON 模組
+
+內建來源位於 `organisation_registry/*.json`，每個檔案只描述一個機關。外部模組放入 `organisations.d` 後重啟即可生效；同一 `canonical_id` 會覆寫內建模組，驗證失敗則回退內建版本並將執行標記為 `degraded`。
+
+```bash
+python -m UK_news_scraper --export-organisation-template organisation.example.json
+python -m UK_news_scraper --open-organisation-folder
+```
+
+macOS 預設外部目錄為 `~/Library/Application Support/UKNewsScraper/organisations.d`，也可用 `UK_NEWS_ORGANISATION_DIR` 指定。JSON 的 `filter.topics` 是 Boolean/BM25 的機關主題白名單；adapter 僅接受程式內建 allowlist，不會執行 JSON 指定的外部程式碼。
+
 ### 桌面介面
 
 ```bash
@@ -30,7 +41,7 @@ python3 -m UK_news_scraper --ui
 ```
 
 桌面介面可建立主題設定檔、選擇 UK 機關與國會來源、設定核心／一般／
-輔助關鍵詞、使用西元或民國起訖日期，並在背景完成抓取與 Excel 匯出。
+輔助關鍵詞、同義詞及各主題 BM25 門檻，使用西元或民國起訖日期，並在背景完成抓取與 Excel 匯出。
 Windows 可攜版可直接雙擊 `run_windows_ui.bat`。
 
 執行中可安全取消；來源發生錯誤或健康警告時，可使用「重試異常來源」
@@ -138,6 +149,7 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 ## 目前納入機關
 
 - BIST / DCMS / AI Security Institute / ICO / CMA / UK IPO / GDS
+- DSIT Transition（仍有效的改組過渡來源）
 - Ofcom / NCSC / Electoral Commission
 - Cabinet Office / NPSA
 - UKRI
@@ -145,7 +157,14 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 2026 年 7 月 DSIT 職能拆分後，科學、研究與創新新聞改由 BIST 承接；
 電信、線上安全、數位身分與 GDS 相關新聞由 DCMS 承接；AI 策略、
 公部門 AI 採用與 AI Security Institute 由 Cabinet Office 承接。舊自訂
-設定檔中的 `DSIT` 與 `DBT` 來源會自動遷移到相應的新來源。
+設定檔中的 `DSIT` 與 `DBT` 來源會自動遷移到相應的新來源；DSIT 舊 feed
+在官方頁面仍有效期間保持為必要來源，DBT feed 則作為 BIST 補充來源。
+GOV.UK 候選文章會以 Content API 保留實際發布機關，改組後主管機關另記於
+`responsibility_owner`，不會直接改寫 publisher。
+
+內建設定使用 `hybrid_bm25`：先以核心／一般／輔助詞及最低 Boolean 分數 3
+建立候選，再以機關新聞與國會資料的合併語料進行 BM25 排序。舊 v1 自訂
+設定會遷移至 v2，但維持 `weighted_keywords` 行為。
 
 ## UK Parliament Research Briefings
 
@@ -162,8 +181,10 @@ RSS 會逐頁抓取，直到資料日期早於本次搜尋起始日，避免只�
 
 若 API 暫時無法使用，程式會自動改抓官方 RSS。Excel 的 `抓取來源` 欄會保留實際來源。
 
-NPSA 官網目前有 Cloudflare challenge，排程會直接使用 Google News RSS
-作為備援，避免將已知的 `403 Forbidden` 誤判為整體抓取失敗。
+Ofcom 以 GOV.UK Atom 加上 Google News RSS 補充官網新聞；Electoral Commission
+改讀官方 sitemap 與近期新聞頁。NPSA 官網遇到 `403 Forbidden` 時會先以
+瀏覽器 TLS 重試；官方 blog 期間內沒有結果或確實無法讀取時，再使用
+Google News RSS 補充官網更新。
 
 ## 測試
 
@@ -172,7 +193,7 @@ python3 -m pip install -r requirement-lock.txt -r requirement-dev.txt
 python3 -m pytest -q
 ```
 
-Rust 預覽版升為正式版前，需用相同期間分別執行 Python 與 Rust，並連續三次記錄完全一致的 logical counts 與 fingerprint v3：
+Rust 預覽版升為正式版前，需用相同期間分別執行 Python 與 Rust，並連續三次記錄完全一致的 logical counts 與 fingerprint v4：
 
 ```bash
 python3 scripts/compare_parallel_runs.py \

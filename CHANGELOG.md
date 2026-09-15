@@ -1,9 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Added profile schema v2 hybrid Boolean/BM25 filtering with synonyms, per-topic thresholds, four-decimal scoring, and Python/Rust parity.
+- Added the DSIT transitional source, DBT-to-BIST supplemental feed, GOV.UK Content API publisher checks, reorganisation ownership metadata, audit warnings, and fingerprint v4.
+- Replaced Ofcom's blocked legacy RSS with the GOV.UK Atom feed plus filtered Google News supplementation.
+- Switched Electoral Commission collection to its official sitemap and filtered database-page noise from fallback results.
+- Retried all HTTP 403 responses with browser TLS so NPSA can recover from non-standard access-denied pages without false degraded warnings.
+
 ## 2.0.0-alpha.3 - 2026-08-20
 
-- Updated the live source smoke gate to verify the BIST and DCMS successor department pages instead of the former DSIT page.
-- Added regression coverage to keep retired DSIT checks out of the source-health workflow.
+- Updated the live source smoke gate for the initial BIST and DCMS successor transition; the later schema v2 audit restores DSIT as an independently required transitional source while its official feed remains active.
 
 ## 2.0.0-alpha.2 - 2026-08-19
 
@@ -15,7 +22,7 @@
 ## 2.0.0-alpha.1 - 2026-08-06
 
 - Added the parallel Rust core and Tauri 2 + React desktop application.
-- Preserved fingerprint v3, four-sheet Excel, profile and delivery-registry contracts.
+- Preserved the four-sheet Excel, profile and delivery-registry contracts; fingerprint v4 is introduced in the hybrid-filter release.
 - Added native Guidance, Report, Publication, Parliament and translation-provider support.
 - Removed the separate password-protected executable and all related build assets.
 - Added three-platform native CI and a 35 MiB portable archive gate.

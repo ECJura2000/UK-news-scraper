@@ -1,5 +1,6 @@
 {
-  "expected": "1275849ff98a32b6fe699c5371daf66ccff7c546e3c75b5d894af95f3c7bcc93",
+  "schema": "v4",
+  "expected": "113fcac75cd1857ec751bb79d8548313065177a60352f057d496edccf8283231",
   "news": [
     {
       "agency": "國家網路安全中心 (NCSC)",

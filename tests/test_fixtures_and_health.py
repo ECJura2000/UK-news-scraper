@@ -24,7 +24,14 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_electoral_commission_fixture_parser():
-    agency = Agency("選舉委員會", "Electoral Commission", "Electoral Commission", "https://example.com")
+    agency = Agency(
+        "選舉委員會",
+        "Electoral Commission",
+        "Electoral Commission",
+        "https://example.com",
+        scraper_adapter="electoral_sitemap",
+        fallbacks=("google_news",),
+    )
     scraper = AgencyFeedScraper(agency)
     soup = BeautifulSoup((FIXTURES / "electoral_commission.html").read_text(), "html.parser")
 
@@ -217,6 +224,108 @@ def test_electoral_commission_google_news_filter_removes_database_noise():
     )
     assert not _is_electoral_commission_google_news_title("Search criteria")
     assert not _is_electoral_commission_google_news_title("Donation summary")
+    assert not _is_electoral_commission_google_news_title("Spending summary")
+
+
+def test_electoral_commission_uses_recent_official_sitemap_entries(monkeypatch):
+    agency = Agency(
+        "選舉委員會",
+        "Electoral Commission",
+        "Electoral Commission",
+        "https://example.com",
+        scraper_adapter="electoral_sitemap",
+        fallbacks=("google_news",),
+    )
+    scraper = AgencyFeedScraper(agency)
+    index = """<sitemapindex xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>
+      <sitemap><loc>https://official.example/sitemap-1.xml</loc></sitemap>
+    </sitemapindex>"""
+    sitemap = """<urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>
+      <url><loc>https://www.electoralcommission.org.uk/media-centre/current-release</loc>
+      <lastmod>2026-09-04T10:13:14+01:00</lastmod></url>
+      <url><loc>https://www.electoralcommission.org.uk/media-centre/old-release</loc>
+      <lastmod>2026-08-01T10:13:14+01:00</lastmod></url>
+      <url><loc>https://www.electoralcommission.org.uk/cy/media-centre/current-release</loc>
+      <lastmod>2026-09-04T10:13:14+01:00</lastmod></url>
+    </urlset>"""
+    article = """<html><head><meta name='description' content='Official summary'></head>
+      <body><h1>Electoral Commission official release</h1>
+      <time datetime='2026-09-04T12:00:00Z'>4 September 2026</time></body></html>"""
+    responses = {
+        "https://www.electoralcommission.org.uk/sitemap.xml": index,
+        "https://official.example/sitemap-1.xml": sitemap,
+        "https://www.electoralcommission.org.uk/media-centre/current-release": article,
+    }
+    monkeypatch.setattr(
+        "UK_news_scraper.scrapers.ministry.registry.get_text",
+        lambda url: responses[url],
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_google_news_fallback",
+        lambda _: (_ for _ in ()).throw(AssertionError("fallback should not run")),
+    )
+
+    items = scraper.fetch(datetime(2026, 8, 31, tzinfo=timezone.utc))
+
+    assert len(items) == 1
+    assert items[0].title == "Electoral Commission official release"
+    assert items[0].link.endswith("/current-release")
+    assert items[0].source_feed.endswith("/sitemap.xml")
+
+
+def test_npsa_successful_empty_blog_uses_site_update_fallback(monkeypatch):
+    agency = Agency(
+        "國家保護安全局",
+        "National Protective Security Authority",
+        "NPSA",
+        "https://www.npsa.gov.uk/",
+        news_pages=("https://www.npsa.gov.uk/blog",),
+        scraper_adapter="html_index",
+        fallbacks=("google_news",),
+    )
+    scraper = AgencyFeedScraper(agency)
+    monkeypatch.setattr(
+        "UK_news_scraper.scrapers.ministry.registry.get_text",
+        lambda _: "<html><body><h1>News and blog</h1></body></html>",
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_google_news_fallback",
+        lambda _: [
+            scraper._html_news_item(
+                title="NPSA official guidance update",
+                link="https://www.npsa.gov.uk/guidance/update",
+                published_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
+                source_feed="https://news.google.com/rss/search",
+            )
+        ],
+    )
+
+    items = scraper.fetch(datetime(2026, 8, 31, tzinfo=timezone.utc))
+
+    assert [item.title for item in items] == ["NPSA official guidance update"]
+
+
+def test_npsa_failed_blog_and_empty_fallback_retains_warning(monkeypatch):
+    agency = Agency(
+        "國家保護安全局",
+        "National Protective Security Authority",
+        "NPSA",
+        "https://www.npsa.gov.uk/",
+        news_pages=("https://www.npsa.gov.uk/blog",),
+        scraper_adapter="html_index",
+        fallbacks=("google_news",),
+    )
+    scraper = AgencyFeedScraper(agency)
+    monkeypatch.setattr(
+        "UK_news_scraper.scrapers.ministry.registry.get_text",
+        lambda _: (_ for _ in ()).throw(RuntimeError("blocked")),
+    )
+    monkeypatch.setattr(scraper, "_fetch_google_news_fallback", lambda _: [])
+
+    assert scraper.fetch(datetime(2026, 8, 31, tzinfo=timezone.utc)) == []
+    assert scraper.source_warnings == ["NPSA 官方 blog 讀取失敗且備援無結果"]
 
 
 def test_ofcom_google_news_fallback_uses_multiple_queries(monkeypatch):

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "module_version": "2026-07-22.1",
+  "canonical_id": "DSIT Transition",
+  "names": {"zh": "科學、創新及科技部（改組過渡來源）", "en": "Department for Science, Innovation and Technology", "short": "DSIT Transition", "publisher_aliases": []},
+  "sources": {"homepage": "https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology", "feeds": ["https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology.atom"], "news_pages": [], "official_pages": ["https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology"], "adapter": "govuk_atom", "fallbacks": []},
+  "filter": {"topics": ["Science & Technology", "AI", "資料治理/隱私/數位身份", "數位平台", "網路安全/資安", "半導體/量子技術"], "include_path_patterns": ["/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"], "exclude_title_patterns": []},
+  "health": {"critical": true, "minimum_items": 1, "maximum_age_days": 14},
+  "history": {"effective_from": "2023-02-07", "predecessors": [], "successors": ["BIST", "DCMS", "Cabinet Office"], "transitional_sources": ["DSIT Atom"]},
+  "responsibility_by_topic": {"Science & Technology": "BIST", "半導體/量子技術": "BIST", "資料治理/隱私/數位身份": "DCMS", "數位平台": "DCMS", "網路安全/資安": "DCMS", "AI": "Cabinet Office"}
+}

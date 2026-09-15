@@ -1,0 +1,8 @@
+{
+  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "NCSC",
+  "names": {"zh": "國家網路安全中心", "en": "National Cyber Security Centre", "short": "NCSC", "publisher_aliases": []},
+  "sources": {"homepage": "https://www.ncsc.gov.uk/", "feeds": ["https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml"], "news_pages": [], "official_pages": ["https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation", "https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation/recovering", "https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation/recovering/immediate-activities", "https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation/recovering/recovering-ongoing-investigations", "https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation/recovering/rebuild"], "adapter": "generic_rss", "fallbacks": []},
+  "filter": {"topics": ["數位平台", "網路安全/資安"], "include_path_patterns": [], "exclude_title_patterns": []},
+  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 30},
+  "history": {"effective_from": "2016-10-01", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
+}

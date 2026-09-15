@@ -2,7 +2,7 @@ use crate::{NewsItem, ParliamentBriefing, RunStatus};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-pub const DATA_FINGERPRINT_VERSION: &str = "v3";
+pub const DATA_FINGERPRINT_VERSION: &str = "v4";
 
 fn sorted_casefold(values: &[String]) -> Vec<String> {
     let mut out = values.to_vec();
@@ -26,7 +26,12 @@ pub fn make_data_fingerprint(news: &[NewsItem], parliament: &[ParliamentBriefing
                 "core_matched_keywords": sorted_casefold(&item.core_matched_keywords),
                 "general_matched_keywords": sorted_casefold(&item.general_matched_keywords),
                 "supporting_matched_keywords": sorted_casefold(&item.supporting_matched_keywords),
-                "relevance_score": item.relevance_score,
+                "boolean_score": item.boolean_score,
+                "bm25_score": item.bm25_score,
+                "bm25_topic_scores": item.bm25_topic_scores,
+                "matched_synonyms": sorted_casefold(&item.matched_synonyms),
+                "publisher_organisation": item.publisher_organisation,
+                "responsibility_owner": item.responsibility_owner,
             })
         })
         .collect();
@@ -47,7 +52,12 @@ pub fn make_data_fingerprint(news: &[NewsItem], parliament: &[ParliamentBriefing
             "core_matched_keywords": sorted_casefold(&item.core_matched_keywords),
             "general_matched_keywords": sorted_casefold(&item.general_matched_keywords),
             "supporting_matched_keywords": sorted_casefold(&item.supporting_matched_keywords),
-            "relevance_score": item.relevance_score,
+            "boolean_score": item.boolean_score,
+            "bm25_score": item.bm25_score,
+            "bm25_topic_scores": item.bm25_topic_scores,
+            "matched_synonyms": sorted_casefold(&item.matched_synonyms),
+            "publisher_organisation": item.publisher_organisation,
+            "responsibility_owner": item.responsibility_owner,
         })
     }));
     records.sort_by_key(|record| serde_json::to_string(record).expect("record JSON"));
@@ -73,12 +83,12 @@ mod tests {
     fn empty_fingerprint_is_stable() {
         assert_eq!(
             make_data_fingerprint(&[], &[]),
-            "7fcbce660bdd3e4b306806808acef08a29aff531510e7be12e779be9495bc26c"
+            "ae737d3e64a45539a3b3df5633d92424a9f67d2b74f4109d7267d029cab39743"
         );
     }
 
     #[test]
-    fn python_v3_golden_vector_matches() {
+    fn python_v4_golden_vector_matches() {
         #[derive(Deserialize)]
         struct Golden {
             expected: String,
@@ -86,7 +96,7 @@ mod tests {
             parliament: Vec<ParliamentBriefing>,
         }
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../tests/fixtures/fingerprint_v3_golden.json");
+            .join("../../../tests/fixtures/fingerprint_v4_golden.json");
         let golden: Golden =
             serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
         assert_eq!(

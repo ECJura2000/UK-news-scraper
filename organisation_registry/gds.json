@@ -1,0 +1,8 @@
+{
+  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "GDS",
+  "names": {"zh": "政府數位服務團隊", "en": "Government Digital Service", "short": "GDS", "publisher_aliases": []},
+  "sources": {"homepage": "https://www.gov.uk/government/organisations/government-digital-service", "feeds": ["https://www.gov.uk/government/organisations/government-digital-service.atom"], "news_pages": [], "official_pages": ["https://www.gov.uk/government/organisations/government-digital-service"], "adapter": "govuk_atom", "fallbacks": []},
+  "filter": {"topics": ["AI", "資料治理/隱私/數位身份"], "include_path_patterns": ["/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"], "exclude_title_patterns": []},
+  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 60},
+  "history": {"effective_from": "2011-04-01", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {"資料治理/隱私/數位身份": "DCMS"}
+}

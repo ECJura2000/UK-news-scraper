@@ -1,0 +1,13 @@
+{
+  "titles": [
+    "UK artificial intelligence sectoral analysis survey",
+    "Online safety industry bulletin",
+    "Routine departmental update",
+    "Ministerial appointment notice",
+    "Glass containers trade remedy"
+  ],
+  "expected": {
+    "Online safety industry bulletin": 11.2701,
+    "UK artificial intelligence sectoral analysis survey": 10.5040
+  }
+}

@@ -176,6 +176,7 @@ pub fn default_profile() -> FilterProfile {
         version: PROFILE_SCHEMA_VERSION,
         selected_sources: [
             "BIST",
+            "DSIT Transition",
             "DCMS",
             "AISI",
             "ICO",
@@ -199,6 +200,7 @@ pub fn default_profile() -> FilterProfile {
                 name: (*name).into(),
                 keywords: words
                     .iter()
+                    .filter(|word| !is_default_alias(word))
                     .map(|word| KeywordDefinition {
                         phrase: (*word).into(),
                         strength: if SUPPORTING.iter().any(|x| x.eq_ignore_ascii_case(word)) {
@@ -208,12 +210,60 @@ pub fn default_profile() -> FilterProfile {
                         } else {
                             KeywordStrength::General
                         },
+                        synonyms: synonyms_for(word).into_iter().map(Into::into).collect(),
                     })
                     .collect(),
+                minimum_bm25_score: match *name {
+                    "Science & Technology" => 12.0,
+                    "AI" | "半導體/量子技術" => 8.0,
+                    _ => 10.0,
+                },
             })
             .collect(),
         minimum_score: 3,
+        ranking_method: "hybrid_bm25".into(),
+        bm25_k1: 1.2,
+        bm25_b: 0.75,
+        title_weight: 2.0,
     }
+}
+
+fn synonyms_for(word: &str) -> Vec<&'static str> {
+    match word.to_ascii_lowercase().as_str() {
+        "artificial intelligence" => vec!["AI"],
+        "automated decision-making" => vec!["automated decision", "ADM"],
+        "algorithmic accountability" => vec!["algorithm accountability"],
+        "international data transfer" => {
+            vec!["cross-border data flow", "cross-border data transfer"]
+        }
+        "standard contractual clauses" => vec!["SCC", "SCCs"],
+        "digital identity" => vec!["digital ID", "eID", "identity wallet"],
+        "illegal content" => vec!["content moderation", "content removal"],
+        "recommendation algorithm" => vec!["recommender system", "recommender systems"],
+        "foreign information manipulation" => vec!["information manipulation", "FIMI"],
+        "critical national infrastructure" => vec!["critical infrastructure", "CNI"],
+        "coordinated vulnerability disclosure" => vec!["vulnerability disclosure", "CVD"],
+        "software bill of materials" => vec!["SBOM"],
+        "product security" => vec!["PSTI", "IoT security"],
+        "supply chain" => vec!["supply-chain security", "supply chain security"],
+        "semiconductor" => vec!["semiconductors", "chip", "chips", "microelectronics"],
+        "quantum technologies" => vec![
+            "quantum technology",
+            "quantum computing",
+            "quantum sensing",
+            "quantum communications",
+            "post-quantum cryptography",
+        ],
+        _ => vec![],
+    }
+}
+
+fn is_default_alias(word: &str) -> bool {
+    TOPICS
+        .iter()
+        .flat_map(|(_, words)| words.iter())
+        .flat_map(|canonical| synonyms_for(canonical))
+        .any(|alias| alias.eq_ignore_ascii_case(word))
 }
 
 pub fn load_profile(value: Option<&str>) -> Result<FilterProfile> {
@@ -222,8 +272,17 @@ pub fn load_profile(value: Option<&str>) -> Result<FilterProfile> {
     };
     let path = Path::new(value);
     if path.exists() {
-        let mut p: FilterProfile =
+        let raw: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(path)?).context("parse profile JSON")?;
+        let version = raw
+            .get("version")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let collection = serde_json::json!({"schema_version": version, "profiles": [raw]});
+        let mut payload: ProfileCollection =
+            serde_json::from_value(migrate_collection(collection)?)
+                .context("parse migrated profile JSON")?;
+        let mut p = payload.profiles.pop().context("設定檔不得空白")?;
         migrate_source_ids(&mut p);
         validate_profile(&p)?;
         Ok(p)
@@ -244,6 +303,13 @@ pub fn validate_profile(p: &FilterProfile) -> Result<()> {
         || p.selected_sources.is_empty()
         || p.topics.is_empty()
         || p.minimum_score < 1
+        || !matches!(
+            p.ranking_method.as_str(),
+            "weighted_keywords" | "hybrid_bm25"
+        )
+        || p.bm25_k1 <= 0.0
+        || !(0.0..=1.0).contains(&p.bm25_b)
+        || p.title_weight < 1.0
     {
         anyhow::bail!("設定檔欄位不完整")
     }
@@ -259,6 +325,9 @@ pub fn validate_profile(p: &FilterProfile) -> Result<()> {
     for topic in &p.topics {
         if topic.name.trim().is_empty() || topic.keywords.is_empty() {
             anyhow::bail!("主題或關鍵詞不可空白")
+        }
+        if topic.minimum_bm25_score < 0.0 {
+            anyhow::bail!("BM25 門檻不可為負數")
         }
         for word in &topic.keywords {
             if word.phrase.trim().is_empty() || !keywords.insert(word.phrase.to_lowercase()) {
@@ -327,7 +396,7 @@ fn migrate_source_ids(profile: &mut FilterProfile) {
     let mut migrated = Vec::new();
     for source in &profile.selected_sources {
         let replacements: &[&str] = match source.as_str() {
-            "DSIT" => &["BIST", "DCMS", "Cabinet Office"],
+            "DSIT" => &["BIST", "DCMS", "Cabinet Office", "DSIT Transition"],
             "DBT" => &["BIST"],
             _ => &[source.as_str()],
         };
@@ -376,7 +445,7 @@ fn migrate_collection(mut raw: serde_json::Value) -> Result<serde_json::Value> {
         .get_mut("profiles")
         .and_then(serde_json::Value::as_array_mut)
         .context("設定檔集合必須包含 profiles array")?;
-    if version == 0 {
+    if version <= 1 {
         for profile in profiles {
             let profile = profile
                 .as_object_mut()
@@ -388,7 +457,7 @@ fn migrate_collection(mut raw: serde_json::Value) -> Result<serde_json::Value> {
             if profile_version > PROFILE_SCHEMA_VERSION as u64 {
                 anyhow::bail!("不支援的設定檔版本：{profile_version}")
             }
-            if profile_version == 0 {
+            if profile_version <= 1 {
                 if let Some(topics) = profile
                     .get_mut("topics")
                     .and_then(serde_json::Value::as_array_mut)
@@ -410,6 +479,42 @@ fn migrate_collection(mut raw: serde_json::Value) -> Result<serde_json::Value> {
                     }
                 }
                 profile.insert("version".into(), serde_json::json!(PROFILE_SCHEMA_VERSION));
+                profile
+                    .entry("ranking_method")
+                    .or_insert_with(|| serde_json::json!("weighted_keywords"));
+                profile
+                    .entry("bm25_k1")
+                    .or_insert_with(|| serde_json::json!(1.2));
+                profile
+                    .entry("bm25_b")
+                    .or_insert_with(|| serde_json::json!(0.75));
+                profile
+                    .entry("title_weight")
+                    .or_insert_with(|| serde_json::json!(2.0));
+                if let Some(topics) = profile
+                    .get_mut("topics")
+                    .and_then(serde_json::Value::as_array_mut)
+                {
+                    for topic in topics {
+                        if let Some(topic) = topic.as_object_mut() {
+                            topic
+                                .entry("minimum_bm25_score")
+                                .or_insert_with(|| serde_json::json!(0.0));
+                            if let Some(keywords) = topic
+                                .get_mut("keywords")
+                                .and_then(serde_json::Value::as_array_mut)
+                            {
+                                for keyword in keywords {
+                                    if let Some(keyword) = keyword.as_object_mut() {
+                                        keyword
+                                            .entry("synonyms")
+                                            .or_insert_with(|| serde_json::json!([]));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 profile
                     .entry("description")
                     .or_insert_with(|| serde_json::json!(""));
@@ -532,7 +637,7 @@ mod tests {
     fn default_profile_hash_matches_python_contract() {
         assert_eq!(
             profile_hash(&default_profile()),
-            "a7423bfa69974665ddc9ac8565063929cdd43fbec350152ad1a32756aaa84bd5"
+            "cedbf389d5229bc57be075d15c0116ba949fbab8a4db65efbd69384f12151c56"
         );
     }
 
@@ -557,7 +662,7 @@ mod tests {
 
         assert_eq!(
             profiles[1].selected_sources,
-            vec!["BIST", "DCMS", "Cabinet Office"]
+            vec!["BIST", "DCMS", "Cabinet Office", "DSIT Transition"]
         );
     }
 
@@ -567,10 +672,46 @@ mod tests {
         let path = dir.path().join("profiles.json");
         fs::write(&path, r#"{"profiles":[{"profile_id":"old-profile","name":"Old","selected_sources":["NCSC"],"topics":[{"name":"Cyber","keywords":["cyber"]}]}]}"#).unwrap();
         let profiles = load_profiles_from(&path).unwrap();
-        assert_eq!(profiles[1].version, 1);
+        assert_eq!(profiles[1].version, 2);
         assert_eq!(
             profiles[1].topics[0].keywords[0].strength,
             KeywordStrength::General
         );
+    }
+
+    #[test]
+    fn rust_matches_shared_bm25_parity_vector() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tests/fixtures/hybrid_bm25_parity.json");
+        let fixture: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let mut news = fixture["titles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(index, title)| {
+                serde_json::from_value(serde_json::json!({
+                    "agency": "BIST",
+                    "agency_en": "BIST",
+                    "unit_category": "BIST",
+                    "title": title,
+                    "link": format!("https://x/{index}"),
+                    "published_at": "2026-09-15T00:00:00Z"
+                }))
+                .unwrap()
+            })
+            .collect::<Vec<uk_news_core::NewsItem>>();
+        let mut parliament = vec![];
+
+        let (filtered, _) =
+            uk_news_core::apply_hybrid_filter(&mut news, &mut parliament, &default_profile());
+        let actual = filtered
+            .into_iter()
+            .map(|item| (item.title, item.bm25_score))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let expected = serde_json::from_value(fixture["expected"].clone()).unwrap();
+
+        assert_eq!(actual, expected);
     }
 }

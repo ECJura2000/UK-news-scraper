@@ -1,0 +1,8 @@
+{
+  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "Electoral Commission",
+  "names": {"zh": "英國選舉委員會", "en": "Electoral Commission", "short": "Electoral Commission", "publisher_aliases": ["UK Electoral Commission"]},
+  "sources": {"homepage": "https://www.electoralcommission.org.uk/", "feeds": [], "news_pages": [], "official_pages": [], "adapter": "electoral_sitemap", "fallbacks": ["google_news"]},
+  "filter": {"topics": ["數位平台"], "include_path_patterns": [], "exclude_title_patterns": ["search criteria", "donation summary", "loan summary", "spending summary"]},
+  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 45},
+  "history": {"effective_from": "2001-01-01", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
+}

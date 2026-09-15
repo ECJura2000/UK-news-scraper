@@ -17,7 +17,7 @@ pub const NEWS_HEADERS: [&str; 7] = [
     "新聞標題",
     "新聞連結",
 ];
-pub const MATCH_HEADERS: [&str; 14] = [
+pub const MATCH_HEADERS: [&str; 20] = [
     "編號",
     "部會",
     "新聞日期",
@@ -32,6 +32,12 @@ pub const MATCH_HEADERS: [&str; 14] = [
     "核心關聯詞",
     "一般關聯詞",
     "輔助關聯詞",
+    "Boolean 分數",
+    "BM25 分數",
+    "主題門檻",
+    "命中同義詞",
+    "實際發布機關",
+    "改組後責任機關",
 ];
 pub const PARLIAMENT_HEADERS: [&str; 14] = [
     "資料日期",
@@ -200,6 +206,12 @@ fn write_news(
                 item.core_matched_keywords.join("、"),
                 item.general_matched_keywords.join("、"),
                 item.supporting_matched_keywords.join("、"),
+                item.boolean_score.to_string(),
+                format!("{:.4}", item.bm25_score),
+                topic_thresholds(&item.matched_topics),
+                item.matched_synonyms.join("、"),
+                item.publisher_organisation.clone(),
+                item.responsibility_owner.clone(),
             ];
             for (c, v) in extra.iter().enumerate() {
                 ws.write_string(row, (c + 7) as u16, v)?;
@@ -229,12 +241,18 @@ fn write_news(
                 item.core_matched_keywords.join("、"),
                 item.general_matched_keywords.join("、"),
                 item.supporting_matched_keywords.join("、"),
+                item.boolean_score.to_string(),
+                format!("{:.4}", item.bm25_score),
+                topic_thresholds(&item.matched_topics),
+                item.matched_synonyms.join("、"),
+                item.publisher_organisation.clone(),
+                item.responsibility_owner.clone(),
             ];
             for (offset, value) in extra.iter().enumerate() {
                 let c = (offset + 7) as u16;
                 ws.merge_range(row, c, row + 1, c, value, &Format::new())?;
             }
-            ws.write_number(row, 10, item.relevance_score as f64)?;
+            ws.write_number(row, 10, item.relevance_score)?;
         }
         ws.write_number(row, 0, (i + 1) as f64)?;
         ws.write_datetime_with_format(row, 2, item.published_at.date_naive(), &date_format(mode))?;
@@ -292,6 +310,12 @@ fn write_parliament(
                 item.core_matched_keywords.join("、"),
                 item.general_matched_keywords.join("、"),
                 item.supporting_matched_keywords.join("、"),
+                item.boolean_score.to_string(),
+                format!("{:.4}", item.bm25_score),
+                topic_thresholds(&item.matched_topics),
+                item.matched_synonyms.join("、"),
+                item.publisher_organisation.clone(),
+                item.responsibility_owner.clone(),
             ];
             for (c, v) in extra.iter().enumerate() {
                 ws.write_string(row, (c + 14) as u16, v)?;
@@ -309,12 +333,18 @@ fn write_parliament(
                 item.core_matched_keywords.join("、"),
                 item.general_matched_keywords.join("、"),
                 item.supporting_matched_keywords.join("、"),
+                item.boolean_score.to_string(),
+                format!("{:.4}", item.bm25_score),
+                topic_thresholds(&item.matched_topics),
+                item.matched_synonyms.join("、"),
+                item.publisher_organisation.clone(),
+                item.responsibility_owner.clone(),
             ];
             for (offset, value) in extra.iter().enumerate() {
                 let c = (offset + 14) as u16;
                 ws.merge_range(row, c, row + 1, c, value, &Format::new())?;
             }
-            ws.write_number(row, 17, item.relevance_score as f64)?;
+            ws.write_number(row, 17, item.relevance_score)?;
         }
         ws.write_datetime_with_format(row, 0, item.published_at.date_naive(), &date_format(mode))?;
         if !item.webpage_url.is_empty() {
@@ -333,11 +363,16 @@ fn write_settings(
     mode: CalendarMode,
 ) -> Result<(), XlsxError> {
     write_headers(ws, 0, &["UK 新聞篩選設定", "值"])?;
-    let rows = [
+    let rows = vec![
         ("設定檔 ID", profile.profile_id.clone()),
         ("設定檔名稱", profile.name.clone()),
         ("設定檔版本", profile.version.to_string()),
         ("最低納入分數", profile.minimum_score.to_string()),
+        ("排序方法", profile.ranking_method.clone()),
+        ("BM25 k1", profile.bm25_k1.to_string()),
+        ("BM25 b", profile.bm25_b.to_string()),
+        ("標題權重", profile.title_weight.to_string()),
+        ("機關 registry 版本", "2026-07-27.v1".into()),
         (
             "Excel 日期紀年",
             match mode {
@@ -352,7 +387,50 @@ fn write_settings(
         ws.write_string((i + 1) as u32, 0, *k)?;
         ws.write_string((i + 1) as u32, 1, v)?;
     }
+    let header_row = rows.len() as u32 + 2;
+    write_headers(
+        ws,
+        header_row,
+        &["主題", "關鍵詞", "同義詞", "強度", "BM25 門檻"],
+    )?;
+    let mut row = header_row + 1;
+    for topic in &profile.topics {
+        for keyword in &topic.keywords {
+            let strength = match keyword.strength {
+                uk_news_core::KeywordStrength::Core => "核心",
+                uk_news_core::KeywordStrength::General => "一般",
+                uk_news_core::KeywordStrength::Supporting => "輔助",
+            };
+            for (column, value) in [
+                topic.name.clone(),
+                keyword.phrase.clone(),
+                keyword.synonyms.join("、"),
+                strength.into(),
+                format!("{:.1}", topic.minimum_bm25_score),
+            ]
+            .iter()
+            .enumerate()
+            {
+                ws.write_string(row, column as u16, value)?;
+            }
+            row += 1;
+        }
+    }
     Ok(())
+}
+fn topic_thresholds(topics: &[String]) -> String {
+    topics
+        .iter()
+        .map(|topic| {
+            let threshold = match topic.as_str() {
+                "Science & Technology" => 12.0,
+                "AI" | "半導體/量子技術" => 8.0,
+                _ => 10.0,
+            };
+            format!("{topic}:{threshold:.1}")
+        })
+        .collect::<Vec<_>>()
+        .join("、")
 }
 fn style_news(ws: &mut Worksheet) -> Result<(), XlsxError> {
     for (c, w) in [14., 38., 18., 24., 16., 80., 72.].iter().enumerate() {
@@ -380,6 +458,10 @@ mod tests {
             selected_sources: vec!["NCSC".into()],
             topics: vec![],
             minimum_score: 3,
+            ranking_method: "weighted_keywords".into(),
+            bm25_k1: 1.2,
+            bm25_b: 0.75,
+            title_weight: 2.0,
         };
         export_news(
             &[],

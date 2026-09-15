@@ -1,0 +1,8 @@
+{
+  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "ICO",
+  "names": {"zh": "英國資訊專員辦公室", "en": "Information Commissioner's Office", "short": "ICO", "publisher_aliases": []},
+  "sources": {"homepage": "https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/", "feeds": [], "news_pages": ["https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/"], "official_pages": ["https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/"], "adapter": "html_index", "fallbacks": []},
+  "filter": {"topics": ["AI", "資料治理/隱私/數位身份"], "include_path_patterns": [], "exclude_title_patterns": []},
+  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 45},
+  "history": {"effective_from": "1984-01-01", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
+}

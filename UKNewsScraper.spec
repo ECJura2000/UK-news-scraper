@@ -5,7 +5,7 @@ a = Analysis(
     ['run_scraper.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('organisation_registry', 'organisation_registry')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -15,11 +15,11 @@ from typing import Any
 from .config import AGENCIES, TOPIC_RULES
 
 
-PROFILE_SCHEMA_VERSION = 1
+PROFILE_SCHEMA_VERSION = 2
 DEFAULT_PROFILE_ID = "uk-tech-law"
 PARLIAMENT_SOURCE_ID = "UK Parliament"
 SOURCE_ID_MIGRATIONS = {
-    "DSIT": ("BIST", "DCMS", "Cabinet Office"),
+    "DSIT": ("BIST", "DCMS", "Cabinet Office", "DSIT Transition"),
     "DBT": ("BIST",),
 }
 
@@ -42,12 +42,14 @@ class KeywordStrength(str, Enum):
 class KeywordDefinition:
     phrase: str
     strength: KeywordStrength = KeywordStrength.GENERAL
+    synonyms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class ProfileTopic:
     name: str
     keywords: tuple[KeywordDefinition, ...]
+    minimum_bm25_score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,10 @@ class FilterProfile:
     selected_sources: tuple[str, ...]
     topics: tuple[ProfileTopic, ...]
     minimum_score: int = 3
+    ranking_method: str = "weighted_keywords"
+    bm25_k1: float = 1.2
+    bm25_b: float = 0.75
+    title_weight: float = 2.0
 
     @property
     def is_default(self) -> bool:
@@ -82,15 +88,61 @@ _SUPPORTING_KEYWORDS = {
     "technology",
 }
 
+HYBRID_BM25 = "hybrid_bm25"
+WEIGHTED_KEYWORDS = "weighted_keywords"
+_BM25_THRESHOLDS = {
+    "Science & Technology": 12.0,
+    "AI": 8.0,
+    "資料治理/隱私/數位身份": 10.0,
+    "數位平台": 10.0,
+    "網路安全/資安": 10.0,
+    "半導體/量子技術": 8.0,
+}
+_DEFAULT_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "artificial intelligence": ("AI",),
+    "automated decision-making": ("automated decision", "ADM"),
+    "algorithmic accountability": ("algorithm accountability",),
+    "international data transfer": ("cross-border data flow", "cross-border data transfer"),
+    "standard contractual clauses": ("SCC", "SCCs"),
+    "digital identity": ("digital ID", "eID", "identity wallet"),
+    "illegal content": ("content moderation", "content removal"),
+    "recommendation algorithm": ("recommender system", "recommender systems"),
+    "foreign information manipulation": ("information manipulation", "FIMI"),
+    "critical national infrastructure": ("critical infrastructure", "CNI"),
+    "coordinated vulnerability disclosure": ("vulnerability disclosure", "CVD"),
+    "software bill of materials": ("SBOM",),
+    "product security": ("PSTI", "IoT security"),
+    "supply chain": ("supply-chain security", "supply chain security"),
+    "semiconductor": ("semiconductors", "chip", "chips", "microelectronics"),
+    "quantum technologies": (
+        "quantum technology",
+        "quantum computing",
+        "quantum sensing",
+        "quantum communications",
+        "post-quantum cryptography",
+    ),
+}
+_DEFAULT_ALIAS_TERMS = {
+    synonym.casefold()
+    for synonyms in _DEFAULT_SYNONYMS.values()
+    for synonym in synonyms
+}
+
 
 def default_profile() -> FilterProfile:
     topics = tuple(
         ProfileTopic(
             name=rule.name,
             keywords=tuple(
-                KeywordDefinition(keyword, _default_strength(keyword))
+                KeywordDefinition(
+                    keyword,
+                    _default_strength(keyword),
+                    _DEFAULT_SYNONYMS.get(keyword, ()),
+                )
                 for keyword in rule.keywords
+                if keyword.casefold() not in _DEFAULT_ALIAS_TERMS
             ),
+            minimum_bm25_score=_BM25_THRESHOLDS[rule.name],
         )
         for rule in TOPIC_RULES
     )
@@ -103,6 +155,7 @@ def default_profile() -> FilterProfile:
         selected_sources=sources,
         topics=topics,
         minimum_score=3,
+        ranking_method=HYBRID_BM25,
     )
 
 
@@ -115,6 +168,10 @@ def validate_profile(profile: FilterProfile) -> FilterProfile:
         raise ValueError("設定檔名稱不可空白")
     if profile.minimum_score < 1:
         raise ValueError("最低分數必須大於等於 1")
+    if profile.ranking_method not in {WEIGHTED_KEYWORDS, HYBRID_BM25}:
+        raise ValueError(f"不支援的排序方式：{profile.ranking_method}")
+    if profile.bm25_k1 <= 0 or not 0 <= profile.bm25_b <= 1 or profile.title_weight < 1:
+        raise ValueError("BM25 參數不在允許範圍")
     if not profile.selected_sources:
         raise ValueError("至少選擇一個資料來源")
     available_sources = {agency.short_name for agency in AGENCIES} | {PARLIAMENT_SOURCE_ID}
@@ -130,6 +187,8 @@ def validate_profile(profile: FilterProfile) -> FilterProfile:
             raise ValueError("主題名稱不可空白")
         if not topic.keywords:
             raise ValueError(f"主題「{topic.name}」至少需要一個關鍵詞")
+        if topic.minimum_bm25_score < 0:
+            raise ValueError(f"主題「{topic.name}」的 BM25 門檻不可為負數")
         for keyword in topic.keywords:
             phrase = keyword.phrase.strip()
             if not phrase:
@@ -138,6 +197,11 @@ def validate_profile(profile: FilterProfile) -> FilterProfile:
             if normalized in seen_phrases:
                 raise ValueError(f"關鍵詞重複：{phrase}")
             seen_phrases.add(normalized)
+            variants = [synonym.strip() for synonym in keyword.synonyms]
+            if any(not variant for variant in variants):
+                raise ValueError(f"關鍵詞「{phrase}」包含空白同義詞")
+            if len({variant.casefold() for variant in variants}) != len(variants):
+                raise ValueError(f"關鍵詞「{phrase}」包含重複同義詞")
     return profile
 
 
@@ -161,10 +225,12 @@ def profile_to_dict(profile: FilterProfile) -> dict[str, Any]:
         "topics": [
             {
                 "name": topic.name,
+                "minimum_bm25_score": topic.minimum_bm25_score,
                 "keywords": [
                     {
                         "phrase": keyword.phrase,
                         "strength": keyword.strength.value,
+                        "synonyms": list(keyword.synonyms),
                     }
                     for keyword in topic.keywords
                 ],
@@ -172,6 +238,10 @@ def profile_to_dict(profile: FilterProfile) -> dict[str, Any]:
             for topic in profile.topics
         ],
         "minimum_score": profile.minimum_score,
+        "ranking_method": profile.ranking_method,
+        "bm25_k1": profile.bm25_k1,
+        "bm25_b": profile.bm25_b,
+        "title_weight": profile.title_weight,
     }
 
 
@@ -187,9 +257,11 @@ def profile_from_dict(payload: object) -> FilterProfile:
                     KeywordDefinition(
                         phrase=str(keyword["phrase"]),
                         strength=KeywordStrength(keyword.get("strength", KeywordStrength.GENERAL.value)),
+                        synonyms=tuple(str(value) for value in keyword.get("synonyms", [])),
                     )
                     for keyword in topic["keywords"]
                 ),
+                minimum_bm25_score=float(topic.get("minimum_bm25_score", 0.0)),
             )
             for topic in payload["topics"]
         )
@@ -201,6 +273,10 @@ def profile_from_dict(payload: object) -> FilterProfile:
             selected_sources=tuple(str(source) for source in payload["selected_sources"]),
             topics=topics,
             minimum_score=int(payload.get("minimum_score", 3)),
+            ranking_method=str(payload.get("ranking_method", WEIGHTED_KEYWORDS)),
+            bm25_k1=float(payload.get("bm25_k1", 1.2)),
+            bm25_b=float(payload.get("bm25_b", 0.75)),
+            title_weight=float(payload.get("title_weight", 2.0)),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"設定檔格式錯誤：{exc}") from exc
@@ -321,7 +397,10 @@ def _migrate_collection_payload(payload: object) -> dict[str, Any]:
     profiles = list(migrated["profiles"])
     if version == 0:
         profiles = [_migrate_profile_payload(item) for item in profiles]
-        version = 1
+        version = PROFILE_SCHEMA_VERSION
+    elif version == 1:
+        profiles = [_migrate_profile_payload(item) for item in profiles]
+        version = PROFILE_SCHEMA_VERSION
     if version != PROFILE_SCHEMA_VERSION:
         raise ValueError(f"無法遷移設定檔集合版本：{version}")
     migrated["schema_version"] = version
@@ -353,6 +432,23 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
         migrated["topics"] = migrated_topics
         migrated["version"] = 1
         version = 1
+    if version == 1:
+        migrated_topics = []
+        for topic in migrated.get("topics", []):
+            migrated_topic = dict(topic)
+            migrated_topic.setdefault("minimum_bm25_score", 0.0)
+            migrated_topic["keywords"] = [
+                {**keyword, "synonyms": list(keyword.get("synonyms", []))}
+                for keyword in migrated_topic.get("keywords", [])
+            ]
+            migrated_topics.append(migrated_topic)
+        migrated["topics"] = migrated_topics
+        migrated.setdefault("ranking_method", WEIGHTED_KEYWORDS)
+        migrated.setdefault("bm25_k1", 1.2)
+        migrated.setdefault("bm25_b", 0.75)
+        migrated.setdefault("title_weight", 2.0)
+        migrated["version"] = 2
+        version = 2
     if version != PROFILE_SCHEMA_VERSION:
         raise ValueError(f"無法遷移設定檔版本：{version}")
     selected_sources = migrated.get("selected_sources")

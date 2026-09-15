@@ -5,5 +5,5 @@
   "identifier": "tw.gov.uk-news-scraper",
   "build": {"beforeDevCommand":"npm run dev","beforeBuildCommand":"npm run build","devUrl":"http://localhost:1420","frontendDist":"../dist"},
   "app": {"windows":[{"title":"UK News Scraper","width":1280,"height":820,"minWidth":960,"minHeight":640}]},
-  "bundle": {"active":true,"targets":"all","icon":[]}
+  "bundle": {"active":true,"targets":"all","icon":[],"resources":["../../../../organisation_registry"]}
 }

@@ -102,8 +102,14 @@ pub fn parse_feed_document(
             supporting_matched_keywords: vec![],
             title_keyword_strengths: Default::default(),
             summary_keyword_strengths: Default::default(),
-            relevance_score: 0,
+            relevance_score: 0.0,
             relevance_level: String::new(),
+            boolean_score: 0,
+            bm25_score: 0.0,
+            bm25_topic_scores: Default::default(),
+            matched_synonyms: vec![],
+            publisher_organisation: agency.name_en.clone(),
+            responsibility_owner: agency.short_name.clone(),
             content_type: content_type_for_link(&link, &title),
         });
     }
@@ -336,8 +342,14 @@ fn news(
         supporting_matched_keywords: vec![],
         title_keyword_strengths: Default::default(),
         summary_keyword_strengths: Default::default(),
-        relevance_score: 0,
+        relevance_score: 0.0,
         relevance_level: String::new(),
+        boolean_score: 0,
+        bm25_score: 0.0,
+        bm25_topic_scores: Default::default(),
+        matched_synonyms: vec![],
+        publisher_organisation: a.name_en.clone(),
+        responsibility_owner: a.short_name.clone(),
     }
 }
 pub fn dedupe(items: Vec<NewsItem>) -> Vec<NewsItem> {

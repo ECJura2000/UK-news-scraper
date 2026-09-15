@@ -1,0 +1,8 @@
+{
+  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "CMA",
+  "names": {"zh": "競爭與市場管理局", "en": "Competition and Markets Authority", "short": "CMA", "publisher_aliases": []},
+  "sources": {"homepage": "https://www.gov.uk/government/organisations/competition-and-markets-authority", "feeds": ["https://www.gov.uk/government/organisations/competition-and-markets-authority.atom"], "news_pages": [], "official_pages": ["https://www.gov.uk/government/organisations/competition-and-markets-authority"], "adapter": "govuk_atom", "fallbacks": []},
+  "filter": {"topics": ["AI", "數位平台"], "include_path_patterns": ["/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"], "exclude_title_patterns": []},
+  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 30},
+  "history": {"effective_from": "2014-04-01", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
+}

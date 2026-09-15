@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import subprocess
+import sys
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,6 +23,10 @@ from .config import (
     DEFAULT_TIMEZONE,
 )
 from .logging_utils import log_event
+from .organisation_registry import (
+    export_organisation_template,
+    external_registry_dir,
+)
 from .profiles import load_profile
 from .runtime_lock import LockUnavailable
 
@@ -82,11 +89,30 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="驗證封裝所需模組與 scraper registry，不執行網路抓取。",
     )
+    parser.add_argument(
+        "--export-organisation-template",
+        metavar="PATH",
+        help="匯出可直接修改並重新載入的機關 JSON 範例。",
+    )
+    parser.add_argument(
+        "--open-organisation-folder",
+        action="store_true",
+        help="建立並開啟外部機關模組 organisations.d 資料夾。",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.export_organisation_template:
+        print(export_organisation_template(args.export_organisation_template))
+        return
+    if args.open_organisation_folder:
+        path = external_registry_dir()
+        path.mkdir(parents=True, exist_ok=True)
+        _open_path(path)
+        print(path)
+        return
     if args.ui:
         from .ui import launch
 
@@ -119,6 +145,7 @@ def _check_runtime() -> None:
     import requests
     import tkinter
 
+    from .config import ORGANISATION_REGISTRY
     from .scrapers.ministry.registry import build_scrapers
 
     scrapers = build_scrapers()
@@ -133,8 +160,19 @@ def _check_runtime() -> None:
     )
     print(
         "封裝執行環境檢查通過；"
-        f"scrapers={len(scrapers)} dependencies={','.join(dependency_names)}"
+        f"scrapers={len(scrapers)} registry={ORGANISATION_REGISTRY.registry_hash} "
+        f"module_errors={len(ORGANISATION_REGISTRY.errors)} "
+        f"dependencies={','.join(dependency_names)}"
     )
+
+
+def _open_path(path: Path) -> None:
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    elif os.name == "nt":
+        os.startfile(path)  # type: ignore[attr-defined]
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
 
 
 def _execute_run(args, period_start, period_end, profile, calendar_mode) -> None:

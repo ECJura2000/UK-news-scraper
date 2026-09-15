@@ -24,7 +24,7 @@ def _custom_profile() -> FilterProfile:
         profile_id="digital-health",
         name="數位健康",
         description="測試設定",
-        version=1,
+        version=2,
         selected_sources=("BIST",),
         topics=(
             ProfileTopic(
@@ -56,7 +56,7 @@ def test_profiles_are_saved_atomically_and_default_is_always_available(tmp_path)
 
     assert set(loaded) == {"uk-tech-law", "digital-health"}
     assert loaded["digital-health"].minimum_score == 4
-    assert json.loads(destination.read_text(encoding="utf-8"))["schema_version"] == 1
+    assert json.loads(destination.read_text(encoding="utf-8"))["schema_version"] == 2
 
 
 def test_profile_rejects_duplicate_keywords():
@@ -82,7 +82,7 @@ def test_legacy_profile_collection_is_migrated(tmp_path):
     loaded = load_profiles(destination)
 
     keyword = loaded["digital-health"].topics[0].keywords[0]
-    assert loaded["digital-health"].version == 1
+    assert loaded["digital-health"].version == 2
     assert keyword.phrase == "digital health"
     assert keyword.strength is KeywordStrength.GENERAL
 
@@ -93,7 +93,7 @@ def test_split_dsit_sources_are_migrated_in_current_profiles():
 
     migrated = profile_from_dict(payload)
 
-    assert migrated.selected_sources == ("BIST", "DCMS", "Cabinet Office")
+    assert migrated.selected_sources == ("BIST", "DCMS", "Cabinet Office", "DSIT Transition")
 
 
 def test_corrupt_profile_file_is_quarantined_and_default_is_loaded(tmp_path):

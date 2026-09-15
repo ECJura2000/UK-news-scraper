@@ -28,6 +28,9 @@ class Agency:
     topics: tuple[str, ...] = ()
     link_include_patterns: tuple[str, ...] = ()
     official_pages: tuple[str, ...] = ()
+    scraper_adapter: str = "generic_rss"
+    fallbacks: tuple[str, ...] = ()
+    exclude_title_patterns: tuple[str, ...] = ()
 
     @property
     def display_name(self) -> str:
@@ -53,8 +56,14 @@ class NewsItem:
     supporting_matched_keywords: list[str] = field(default_factory=list)
     title_keyword_strengths: dict[str, str] = field(default_factory=dict)
     summary_keyword_strengths: dict[str, str] = field(default_factory=dict)
-    relevance_score: int = 0
+    relevance_score: float = 0.0
     relevance_level: str = ""
+    boolean_score: int = 0
+    bm25_score: float = 0.0
+    bm25_topic_scores: dict[str, float] = field(default_factory=dict)
+    matched_synonyms: list[str] = field(default_factory=list)
+    publisher_organisation: str = ""
+    responsibility_owner: str = ""
     content_type: str = "news"
 
     @property
@@ -84,8 +93,14 @@ class ParliamentBriefing:
     supporting_matched_keywords: list[str] = field(default_factory=list)
     title_keyword_strengths: dict[str, str] = field(default_factory=dict)
     summary_keyword_strengths: dict[str, str] = field(default_factory=dict)
-    relevance_score: int = 0
+    relevance_score: float = 0.0
     relevance_level: str = ""
+    boolean_score: int = 0
+    bm25_score: float = 0.0
+    bm25_topic_scores: dict[str, float] = field(default_factory=dict)
+    matched_synonyms: list[str] = field(default_factory=list)
+    publisher_organisation: str = "UK Parliament"
+    responsibility_owner: str = "UK Parliament"
 
     @property
     def date_text(self) -> str:

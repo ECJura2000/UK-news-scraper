@@ -37,6 +37,10 @@ struct Cli {
     ui: bool,
     #[arg(long)]
     check_runtime: bool,
+    #[arg(long)]
+    export_organisation_template: Option<PathBuf>,
+    #[arg(long)]
+    open_organisation_folder: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -105,10 +109,26 @@ fn entry() -> Result<()> {
     if let Some(Command::DeliveryRegistry(d)) = cli.command {
         return delivery(d);
     }
+    if let Some(path) = cli.export_organisation_template {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, uk_news_core::ORGANISATION_TEMPLATE)?;
+        println!("{}", path.display());
+        return Ok(());
+    }
+    if cli.open_organisation_folder {
+        let path = uk_news_core::external_registry_dir();
+        std::fs::create_dir_all(&path)?;
+        open_local_path(&path)?;
+        println!("{}", path.display());
+        return Ok(());
+    }
     if cli.check_runtime {
+        let registry = uk_news_sources::organisation_registry();
         println!(
-            "原生執行環境檢查通過；scrapers={} runtime=rust fingerprint=v3",
-            uk_news_sources::agencies().len()
+            "原生執行環境檢查通過；scrapers={} runtime=rust fingerprint=v4 registry={} module_errors={}",
+            registry.modules.len(), registry.registry_hash, registry.errors.len()
         );
         return Ok(());
     }
@@ -137,6 +157,18 @@ fn entry() -> Result<()> {
     println!("全部新聞：{} 筆", result.2.all_news_count);
     println!("Excel：{}", result.0.display());
     println!("執行摘要：{}", result.1.display());
+    Ok(())
+}
+fn open_local_path(path: &std::path::Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let status = std::process::Command::new("open").arg(path).status()?;
+    #[cfg(target_os = "windows")]
+    let status = std::process::Command::new("explorer").arg(path).status()?;
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let status = std::process::Command::new("xdg-open").arg(path).status()?;
+    if !status.success() {
+        anyhow::bail!("無法開啟 {}", path.display());
+    }
     Ok(())
 }
 fn delivery(d: Delivery) -> Result<()> {
@@ -280,10 +312,43 @@ struct UiRunResult {
     news: Vec<uk_news_core::NewsItem>,
     parliament: Vec<uk_news_core::ParliamentBriefing>,
 }
+#[derive(Serialize)]
+struct OrganisationRegistryStatus {
+    modules: Vec<uk_news_core::OrganisationModuleSummary>,
+    errors: Vec<String>,
+    registry_hash: String,
+    external_dir: String,
+}
 static ACTIVE_RUN: OnceLock<Mutex<Option<tokio::task::AbortHandle>>> = OnceLock::new();
 #[tauri::command]
 fn source_catalog() -> Vec<uk_news_core::Agency> {
     uk_news_sources::agencies()
+}
+#[tauri::command]
+fn organisation_registry_status() -> OrganisationRegistryStatus {
+    let registry = uk_news_sources::organisation_registry();
+    OrganisationRegistryStatus {
+        modules: registry.module_summaries(),
+        errors: registry.errors,
+        registry_hash: registry.registry_hash,
+        external_dir: uk_news_core::external_registry_dir().display().to_string(),
+    }
+}
+#[tauri::command]
+fn export_organisation_template(path: String) -> Result<String, String> {
+    let target = PathBuf::from(path);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(&target, uk_news_core::ORGANISATION_TEMPLATE)
+        .map_err(|error| error.to_string())?;
+    Ok(target.display().to_string())
+}
+#[tauri::command]
+fn organisation_folder() -> Result<String, String> {
+    let path = uk_news_core::external_registry_dir();
+    std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
+    Ok(path.display().to_string())
 }
 #[tauri::command]
 fn built_in_profile() -> uk_news_core::FilterProfile {
@@ -411,6 +476,9 @@ fn launch_ui() -> Result<()> {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             source_catalog,
+            organisation_registry_status,
+            export_organisation_template,
+            organisation_folder,
             built_in_profile,
             list_profiles,
             profile_load_report,

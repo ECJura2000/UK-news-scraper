@@ -5,6 +5,7 @@ import json
 import re
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
+from xml.etree import ElementTree
 
 from bs4 import BeautifulSoup
 
@@ -47,7 +48,9 @@ ELECTORAL_COMMISSION_GOOGLE_NEWS_EXCLUDED_TITLES = {
     "qualifications",
     "living abroad",
     "resources for media",
+    "spending summary",
 }
+ELECTORAL_COMMISSION_SITEMAP_URL = "https://www.electoralcommission.org.uk/sitemap.xml"
 OFCOM_GOOGLE_NEWS_QUERIES = (
     "site:ofcom.org.uk Ofcom",
     'site:ofcom.org.uk "Ofcom statement"',
@@ -65,15 +68,19 @@ class AgencyFeedScraper(Scraper):
 
     def fetch(self, since: datetime) -> list[NewsItem]:
         self.source_warnings = []
-        if self.agency.short_name == "NPSA":
-            official_items, _, _ = self._fetch_official_pages(since)
-            if official_items:
-                return official_items
-            if self.agency.news_pages:
-                html_items, _, _ = self._fetch_html_news_pages(since)
-                if html_items:
-                    return html_items
-            return self._fetch_google_news_fallback(since)
+        if self.agency.scraper_adapter == "electoral_sitemap":
+            return self._fetch_electoral_commission_sitemap(since)
+
+        if self.agency.scraper_adapter == "html_index" and "google_news" in self.agency.fallbacks:
+            html_items, _, successful = self._fetch_html_news_pages(since)
+            if successful and html_items:
+                return html_items
+            fallback_items = self._fetch_google_news_fallback(since)
+            if fallback_items:
+                self.source_warnings.clear()
+            elif not successful:
+                self.source_warnings.append("NPSA 官方 blog 讀取失敗且備援無結果")
+            return fallback_items
 
         items: list[NewsItem] = []
         feed_items: list[NewsItem] = []
@@ -117,16 +124,14 @@ class AgencyFeedScraper(Scraper):
             successful_sources += official_successful
             items.extend(official_items)
 
-        if not items and self.agency.short_name in (
-            "Ofcom",
-            "NPSA",
-            "Electoral Commission",
-        ):
+        if "google_news" in self.agency.fallbacks:
             attempted_sources += 1
             try:
                 fallback_items = self._fetch_google_news_fallback(since)
             except Exception as exc:
-                print(f"[warn] Google News 備援讀取失敗：{self.agency.short_name} ({exc})")
+                warning = "Ofcom Google News 補充來源讀取失敗"
+                print(f"[warn] {warning} ({exc})")
+                self.source_warnings.append(warning)
             else:
                 successful_sources += 1
                 items.extend(fallback_items)
@@ -135,6 +140,58 @@ class AgencyFeedScraper(Scraper):
             raise DownloadError("所有來源讀取失敗")
 
         return dedupe_items(items)
+
+    def _fetch_electoral_commission_sitemap(self, since: datetime) -> list[NewsItem]:
+        try:
+            sitemap_urls = _sitemap_locations(get_text(ELECTORAL_COMMISSION_SITEMAP_URL))
+            if not sitemap_urls:
+                raise ValueError("sitemap index 未列出子 sitemap")
+
+            candidates: list[str] = []
+            for sitemap_url, _ in sitemap_urls:
+                for page_url, last_modified in _sitemap_locations(get_text(sitemap_url)):
+                    path = urlparse(page_url).path
+                    if not path.startswith("/media-centre/") or path.startswith("/cy/"):
+                        continue
+                    if last_modified and last_modified >= since:
+                        candidates.append(page_url)
+
+            items: list[NewsItem] = []
+            for page_url in dict.fromkeys(candidates):
+                soup = BeautifulSoup(get_text(page_url), "html.parser")
+                item = self._extract_electoral_commission_article(soup, page_url, since)
+                if item:
+                    items.append(item)
+            return dedupe_items(items)
+        except Exception as exc:
+            warning = "Electoral Commission 官方 sitemap 讀取失敗"
+            print(f"[warn] {warning} ({exc})")
+            self.source_warnings.append(warning)
+            fallback_items = self._fetch_google_news_fallback(since)
+            if fallback_items:
+                self.source_warnings.clear()
+            return fallback_items
+
+    def _extract_electoral_commission_article(
+        self,
+        soup: BeautifulSoup,
+        page_url: str,
+        since: datetime,
+    ) -> NewsItem | None:
+        title_node = soup.select_one("h1")
+        published_at = _date_from_html(soup)
+        if not title_node or not published_at or published_at < since:
+            return None
+        title = clean_text(title_node.get_text(" ", strip=True))
+        if len(title) < 12:
+            return None
+        return self._html_news_item(
+            title=title,
+            link=page_url,
+            published_at=published_at,
+            source_feed=ELECTORAL_COMMISSION_SITEMAP_URL,
+            summary=_summary_from_html(soup),
+        )
 
     def _entry_to_news_item(self, entry: Any, feed_url: str, since: datetime) -> NewsItem | None:
         published_at = parse_feed_datetime(entry)
@@ -145,6 +202,8 @@ class AgencyFeedScraper(Scraper):
         link = getattr(entry, "link", "")
         summary = _entry_summary(entry)
         if not title or not link:
+            return None
+        if self._is_excluded_title(title):
             return None
         if not self._is_allowed_link(link):
             return None
@@ -166,6 +225,10 @@ class AgencyFeedScraper(Scraper):
         if not patterns:
             return True
         return any(pattern in link for pattern in patterns)
+
+    def _is_excluded_title(self, title: str) -> bool:
+        normalized = title.casefold().strip()
+        return any(pattern.casefold() in normalized for pattern in self.agency.exclude_title_patterns)
 
     @staticmethod
     def _is_official_link(link: str, page_url: str) -> bool:
@@ -473,7 +536,7 @@ class AgencyFeedScraper(Scraper):
                 ).strip()
             elif self.agency.short_name == "Electoral Commission":
                 title = re.sub(
-                    r"\s+-\s+Electoral Commission$",
+                    r"\s+-\s+(?:UK\s+)?Electoral Commission$",
                     "",
                     title,
                     flags=re.IGNORECASE,
@@ -506,6 +569,19 @@ def _is_electoral_commission_google_news_title(title: str) -> bool:
             "loan summary",
         )
     )
+
+
+def _sitemap_locations(xml_text: str) -> list[tuple[str, datetime | None]]:
+    root = ElementTree.fromstring(xml_text)
+    locations: list[tuple[str, datetime | None]] = []
+    for node in root:
+        values = {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in node}
+        location = values.get("loc", "")
+        if not location:
+            continue
+        last_modified = parse_datetime_text(values.get("lastmod", ""))
+        locations.append((location, last_modified))
+    return locations
 
 
 def _date_from_html(node: Any) -> datetime | None:

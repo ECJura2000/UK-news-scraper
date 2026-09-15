@@ -9,7 +9,7 @@ from pathlib import Path
 from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
 
 
-DATA_FINGERPRINT_VERSION = "v3"
+DATA_FINGERPRINT_VERSION = "v4"
 
 
 @dataclass(frozen=True)
@@ -30,11 +30,19 @@ class RunSummary:
     source_health: tuple[SourceHealth, ...]
     profile_id: str = "uk-tech-law"
     profile_name: str = "UK 科技法制"
-    profile_version: int = 1
+    profile_version: int = 2
     profile_hash: str = ""
     selected_sources: tuple[str, ...] = ()
     minimum_score: int = 3
     excel_date_calendar: str = "gregorian"
+    filter_method: str = "weighted_keywords"
+    organisation_registry_version: str = ""
+    organisation_changes: tuple[str, ...] = ()
+    transitional_sources: tuple[str, ...] = ()
+    organisation_audit_status: str = "not_run"
+    organisation_modules: tuple[dict[str, str | bool], ...] = ()
+    organisation_module_errors: tuple[str, ...] = ()
+    organisation_registry_hash: str = ""
 
 
 def write_run_summary(summary: RunSummary, output_path: str | Path) -> Path:
@@ -92,7 +100,12 @@ def make_data_fingerprint(
             "core_matched_keywords": sorted(item.core_matched_keywords, key=str.casefold),
             "general_matched_keywords": sorted(item.general_matched_keywords, key=str.casefold),
             "supporting_matched_keywords": sorted(item.supporting_matched_keywords, key=str.casefold),
-            "relevance_score": item.relevance_score,
+            "boolean_score": item.boolean_score,
+            "bm25_score": item.bm25_score,
+            "bm25_topic_scores": {key: item.bm25_topic_scores[key] for key in sorted(item.bm25_topic_scores)},
+            "matched_synonyms": sorted(item.matched_synonyms, key=str.casefold),
+            "publisher_organisation": item.publisher_organisation,
+            "responsibility_owner": item.responsibility_owner,
         }
         for item in news_items
     ]
@@ -115,7 +128,12 @@ def make_data_fingerprint(
             "core_matched_keywords": sorted(item.core_matched_keywords, key=str.casefold),
             "general_matched_keywords": sorted(item.general_matched_keywords, key=str.casefold),
             "supporting_matched_keywords": sorted(item.supporting_matched_keywords, key=str.casefold),
-            "relevance_score": item.relevance_score,
+            "boolean_score": item.boolean_score,
+            "bm25_score": item.bm25_score,
+            "bm25_topic_scores": {key: item.bm25_topic_scores[key] for key in sorted(item.bm25_topic_scores)},
+            "matched_synonyms": sorted(item.matched_synonyms, key=str.casefold),
+            "publisher_organisation": item.publisher_organisation,
+            "responsibility_owner": item.responsibility_owner,
         }
         for item in parliament_items
     )

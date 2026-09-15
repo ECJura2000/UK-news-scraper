@@ -1,4 +1,4 @@
-use crate::{organisation_registry, parse_feed_document, parse_official_html};
+use crate::{agencies, parse_feed_document, parse_official_html};
 use chrono::{DateTime, Utc};
 use feed_rs::parser;
 use futures::stream::{self, StreamExt};
@@ -25,16 +25,14 @@ pub async fn fetch_agencies(
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .unwrap();
-    let targets = organisation_registry()
-        .modules
+    let targets = agencies()
         .into_iter()
-        .filter(|module| selected.is_empty() || selected.contains(&module.canonical_id))
+        .filter(|a| selected.is_empty() || selected.contains(&a.short_name))
         .collect::<Vec<_>>();
     let results = stream::iter(targets)
-        .map(|module| {
+        .map(|agency| {
             let client = client.clone();
             async move {
-                let agency = module.agency();
                 let started = Instant::now();
                 let mut items = vec![];
                 let mut warnings = vec![];
@@ -84,24 +82,15 @@ pub async fn fetch_agencies(
                         }
                     }
                 }
-                if module
-                    .sources
-                    .fallbacks
-                    .iter()
-                    .any(|fallback| fallback == "google_news")
-                    && (items.is_empty() || agency.short_name == "Ofcom")
+                if items.is_empty()
+                    && matches!(
+                        agency.short_name.as_str(),
+                        "Ofcom" | "NPSA" | "Electoral Commission"
+                    )
                 {
                     match google_news_fallback(&client, &agency, since, until).await {
                         Ok(mut fallback) => {
                             successes += 1;
-                            if !fallback.is_empty()
-                                && matches!(
-                                    agency.short_name.as_str(),
-                                    "NPSA" | "Electoral Commission"
-                                )
-                            {
-                                warnings.clear();
-                            }
                             items.append(&mut fallback);
                         }
                         Err(error) => warnings.push(format!(
@@ -111,15 +100,10 @@ pub async fn fetch_agencies(
                     }
                 }
                 items = crate::parse::dedupe(items);
-                items.retain(|item| {
-                    !module.filter.exclude_title_patterns.iter().any(|pattern| {
-                        Regex::new(pattern).is_ok_and(|regex| regex.is_match(&item.title))
-                    })
-                });
                 let success = successes > 0;
                 let mut warning = warnings.join("；");
                 if warning.is_empty() {
-                    warning = health_warning(&module, &items, since);
+                    warning = health_warning(&agency.short_name, &items, since);
                 }
                 let newest = items
                     .iter()
@@ -129,7 +113,7 @@ pub async fn fetch_agencies(
                     .unwrap_or_default();
                 let health = SourceHealth {
                     source: agency.short_name.clone(),
-                    critical: module.health.critical,
+                    critical: true,
                     success,
                     item_count: items.len(),
                     duration_seconds: round_duration(started.elapsed().as_secs_f64()),
@@ -241,14 +225,8 @@ async fn fetch_parliament_api(
                 core_matched_keywords: vec![],
                 general_matched_keywords: vec![],
                 supporting_matched_keywords: vec![],
-                relevance_score: 0.0,
+                relevance_score: 0,
                 relevance_level: String::new(),
-                boolean_score: 0,
-                bm25_score: 0.0,
-                bm25_topic_scores: Default::default(),
-                matched_synonyms: vec![],
-                publisher_organisation: "UK Parliament".into(),
-                responsibility_owner: "UK Parliament".into(),
             });
         }
         if values.len() < 500 || oldest.is_some_and(|date| date < since) {
@@ -324,7 +302,7 @@ async fn google_news_fallback(
     let ofcom_suffix = Regex::new(r"\s+-\s+(?:Ofcom\s+-\s+)?www\.ofcom\.org\.uk$").unwrap();
     let npsa_suffix =
         Regex::new(r"(?i)\s+-\s+National Protective Security Authority(?:\s+\|\s+NPSA)?$").unwrap();
-    let electoral_suffix = Regex::new(r"(?i)\s+-\s+(?:UK\s+)?Electoral Commission$").unwrap();
+    let electoral_suffix = Regex::new(r"(?i)\s+-\s+Electoral Commission$").unwrap();
     for query in queries {
         let response = client
             .get("https://news.google.com/rss/search")
@@ -356,12 +334,6 @@ async fn google_news_fallback(
                 title = npsa_suffix.replace(&title, "").trim().into();
             } else {
                 title = electoral_suffix.replace(&title, "").trim().into();
-                if matches!(
-                    title.to_lowercase().as_str(),
-                    "search criteria" | "donation summary" | "loan summary" | "spending summary"
-                ) {
-                    continue;
-                }
             }
             if title.len() < 12 {
                 continue;
@@ -395,14 +367,8 @@ async fn google_news_fallback(
                 supporting_matched_keywords: vec![],
                 title_keyword_strengths: Default::default(),
                 summary_keyword_strengths: Default::default(),
-                relevance_score: 0.0,
+                relevance_score: 0,
                 relevance_level: String::new(),
-                boolean_score: 0,
-                bm25_score: 0.0,
-                bm25_topic_scores: Default::default(),
-                matched_synonyms: vec![],
-                publisher_organisation: agency.name_en.clone(),
-                responsibility_owner: agency.short_name.clone(),
                 content_type: ContentType::News,
             });
         }
@@ -410,22 +376,26 @@ async fn google_news_fallback(
     Ok(crate::parse::dedupe(items))
 }
 
-fn health_warning(
-    module: &uk_news_core::OrganisationModule,
-    items: &[NewsItem],
-    since: DateTime<Utc>,
-) -> String {
-    let source = &module.canonical_id;
-    let minimum = module.health.minimum_items;
+fn health_warning(source: &str, items: &[NewsItem], since: DateTime<Utc>) -> String {
+    let minimum = match source {
+        "BIST" | "DCMS" | "Ofcom" | "Cabinet Office" => 1,
+        _ => 0,
+    };
     if items.len() < minimum {
         return format!(
             "{source} 筆數異常：取得 {} 筆，低於健康門檻 {minimum} 筆",
             items.len()
         );
     }
+    let max_age = match source {
+        "BIST" | "DCMS" | "Ofcom" | "Cabinet Office" => Some(14),
+        "CMA" | "NCSC" => Some(30),
+        "UK IPO" | "ICO" | "Electoral Commission" => Some(45),
+        "AISI" | "GDS" | "NPSA" | "UKRI" => Some(60),
+        _ => None,
+    };
     if since >= Utc::now() - chrono::Duration::days(30) {
-        if let Some(newest) = items.iter().map(|x| x.published_at).max() {
-            let days = module.health.maximum_age_days as i64;
+        if let (Some(days), Some(newest)) = (max_age, items.iter().map(|x| x.published_at).max()) {
             if newest < Utc::now() - chrono::Duration::days(days) {
                 return format!("{source} 最新資料已超過 {days} 天");
             }
@@ -594,14 +564,8 @@ pub async fn fetch_parliament(
                     core_matched_keywords: vec![],
                     general_matched_keywords: vec![],
                     supporting_matched_keywords: vec![],
-                    relevance_score: 0.0,
+                    relevance_score: 0,
                     relevance_level: String::new(),
-                    boolean_score: 0,
-                    bm25_score: 0.0,
-                    bm25_topic_scores: Default::default(),
-                    matched_synonyms: vec![],
-                    publisher_organisation: "UK Parliament".into(),
-                    responsibility_owner: "UK Parliament".into(),
                 });
             }
             if entry_count < 10 || oldest.is_some_and(|x| x < since) {
@@ -772,14 +736,8 @@ fn parse_topic_archive(
             core_matched_keywords: vec![],
             general_matched_keywords: vec![],
             supporting_matched_keywords: vec![],
-            relevance_score: 0.0,
+            relevance_score: 0,
             relevance_level: String::new(),
-            boolean_score: 0,
-            bm25_score: 0.0,
-            bm25_topic_scores: Default::default(),
-            matched_synonyms: vec![],
-            publisher_organisation: "UK Parliament".into(),
-            responsibility_owner: "UK Parliament".into(),
         })
     }
     dedupe_parliament(out)

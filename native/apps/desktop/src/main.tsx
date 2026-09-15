@@ -9,13 +9,12 @@ import './extras.css';
 
 type Agency = { short_name: string; name_zh: string; name_en: string; topics: string[] };
 type Keyword = { phrase: string; strength: string };
-type Profile = { profile_id: string; name: string; description: string; version: number; selected_sources: string[]; topics: { name: string; minimum_bm25_score: number; keywords: (Keyword & { synonyms: string[] })[] }[]; minimum_score: number; ranking_method: string; bm25_k1: number; bm25_b: number; title_weight: number };
+type Profile = { profile_id: string; name: string; description: string; version: number; selected_sources: string[]; topics: { name: string; keywords: Keyword[] }[]; minimum_score: number };
 type ProfileReport = { profiles: Profile[]; warning: string; recovery_path: string | null };
 type Summary = { run_id: string; status: string; period_start: string; period_end: string; output_file: string; profile_id: string; all_news_count: number; filtered_news_count: number; parliament_count: number; warnings: string[] };
 type News = { published_at: string; unit_category: string | null; title: string; link: string; content_type: string; matched_topics: string[]; relevance_score: number };
 type Parliament = { published_at: string; publisher: string; title: string; webpage_url: string; matched_topics: string[]; relevance_score: number };
 type Result = { workbook_path: string; summary_path: string; summary: Summary; news: News[]; parliament: Parliament[] };
-type RegistryStatus = { modules: { canonical_id: string; external: boolean }[]; errors: string[]; registry_hash: string; external_dir: string };
 type PreviewRow = { date: string; source: string; type: string; title: string; url: string; topics: string[]; score: number };
 
 const outputDirectory = (path: string) => { const value = path.replace(/[\\/][^\\/]+$/, ''); return value === path ? '.' : value };
@@ -23,7 +22,6 @@ const outputDirectory = (path: string) => { const value = path.replace(/[\\/][^\
 function App() {
   const initial = defaultPeriod(new Date());
   const [sources, setSources] = useState<Agency[]>([]);
-  const [registry, setRegistry] = useState<RegistryStatus | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -46,7 +44,7 @@ function App() {
   function selectProfile(value: Profile) { setProfile(value); setSelected(new Set(value.selected_sources)); setMinimumScore(value.minimum_score) }
   async function refreshProfiles(preferred?: string) { const values = await invoke<Profile[]>('list_profiles'); setProfiles(values); const next = values.find(item => item.profile_id === preferred) ?? values[0]; if (next) selectProfile(next) }
 
-  useEffect(() => { Promise.all([invoke<Agency[]>('source_catalog'), invoke<ProfileReport>('profile_load_report'), invoke<RegistryStatus>('organisation_registry_status')]).then(([catalog, report, registryStatus]) => { setSources(catalog); setRegistry(registryStatus); setProfiles(report.profiles); if (report.profiles[0]) selectProfile(report.profiles[0]); const warnings = [report.warning, registryStatus.errors.length ? `機關模組已回退或略過：\n${registryStatus.errors.join('\n')}` : ''].filter(Boolean); if (warnings.length) setError(warnings.join('\n\n')) }).catch(reason => setError(String(reason))) }, []);
+  useEffect(() => { Promise.all([invoke<Agency[]>('source_catalog'), invoke<ProfileReport>('profile_load_report')]).then(([catalog, report]) => { setSources(catalog); setProfiles(report.profiles); if (report.profiles[0]) selectProfile(report.profiles[0]); if (report.warning) setError(report.warning) }).catch(reason => setError(String(reason))) }, []);
   useEffect(() => { invoke<Summary[]>('recent_runs', { outputDir: outputDirectory(output) }).then(setHistory).catch(() => setHistory([])) }, [output, result]);
   const shown = useMemo(() => sources.filter(source => `${source.short_name}${source.name_zh}${source.name_en}`.toLowerCase().includes(query.toLowerCase())), [sources, query]);
   const rows = useMemo(() => {
@@ -61,29 +59,27 @@ function App() {
   const resultSources = useMemo(() => [...new Set(result ? [...result.news.map(item => item.unit_category ?? ''), ...result.parliament.map(item => item.publisher)] : [])].filter(Boolean).sort(), [result]);
 
   async function choose() { const path = await save({ filters: [{ name: 'Excel', extensions: ['xlsx'] }], defaultPath: output }); if (path) setOutput(path) }
-  async function exportOrganisationTemplate() { const path = await save({ filters: [{ name: 'JSON', extensions: ['json'] }], defaultPath: 'organisation.example.json' }); if (path) await invoke('export_organisation_template', { path }) }
-  async function openOrganisationFolder() { const path = await invoke<string>('organisation_folder'); await openPath(path) }
   function request(overrides?: Partial<{ since: string; until: string; output: string }>) { return { since: overrides?.since ?? since, until: overrides?.until ?? until, output: overrides?.output ?? output, workers: 6, profilePath: profile?.profile_id ?? null, calendar, selectedSources: [...selected], minimumScore, profile: profile ? { ...profile, selected_sources: [...selected], minimum_score: minimumScore } : null } }
   async function run() { setRunning(true); setError(''); setResult(null); try { setResult(await invoke<Result>('run_scraper', { request: request() })) } catch (reason) { setError(String(reason)) } finally { setRunning(false) } }
   async function retry(summary: Summary, summaryPath?: string) { setRunning(true); setError(''); try { const path = summaryPath ?? summary.output_file.replace(/\.xlsx$/i, '.run.json'); setResult(await invoke<Result>('retry_failed', { request: { run: request({ since: summary.period_start, until: summary.period_end, output: summary.output_file }), summaryPath: path } })) } catch (reason) { setError(String(reason)) } finally { setRunning(false) } }
   async function cancel() { if (await invoke<boolean>('cancel_run')) setError('執行已取消') }
   async function saveAsProfile() { if (!profile) return; const id = window.prompt('新設定檔 ID（小寫英數與連字號）', `${profile.profile_id}-copy`); if (!id) return; const name = window.prompt('設定檔名稱', `${profile.name} 副本`); if (!name) return; try { await invoke('save_profile', { profile: { ...profile, profile_id: id, name, selected_sources: [...selected], minimum_score: minimumScore } }); await refreshProfiles(id) } catch (reason) { setError(String(reason)) } }
   async function removeProfile() { if (!profile || profile.profile_id === 'uk-tech-law' || !window.confirm(`刪除設定檔「${profile.name}」？`)) return; try { await invoke('delete_profile', { profileId: profile.profile_id }); await refreshProfiles() } catch (reason) { setError(String(reason)) } }
-  function updateKeywords(topicIndex: number, strength: string, value: string) { if (!profile) return; const phrases = value.split(/[,，\n]/).map(item => item.trim()).filter(Boolean); setProfile({ ...profile, topics: profile.topics.map((topic, index) => index === topicIndex ? { ...topic, keywords: [...topic.keywords.filter(item => item.strength !== strength), ...phrases.map(phrase => ({ phrase, strength, synonyms: [] }))] } : topic) }) }
+  function updateKeywords(topicIndex: number, strength: string, value: string) { if (!profile) return; const phrases = value.split(/[,，\n]/).map(item => item.trim()).filter(Boolean); setProfile({ ...profile, topics: profile.topics.map((topic, index) => index === topicIndex ? { ...topic, keywords: [...topic.keywords.filter(item => item.strength !== strength), ...phrases.map(phrase => ({ phrase, strength }))] } : topic) }) }
 
   return <main>
     <header><div><p className="eyebrow">UK OFFICIAL INTELLIGENCE</p><h1>英國新聞與官方文件觀測</h1><p>Rust 原生抓取核心 · Guidance、Report、Publication 與國會研究</p></div><span className="badge">v2 Preview</span></header>
     <section className="grid">
       <div className="panel"><h2>執行設定</h2>
         <label>主題設定檔<select value={profile?.profile_id ?? ''} onChange={event => { const value = profiles.find(item => item.profile_id === event.target.value); if (value) selectProfile(value) }}>{profiles.map(item => <option key={item.profile_id} value={item.profile_id}>{item.name}</option>)}</select></label>
-        <div className="profile-actions"><button onClick={saveAsProfile}>另存設定檔</button><button disabled={profile?.profile_id === 'uk-tech-law'} onClick={removeProfile}>刪除</button><button onClick={exportOrganisationTemplate}>下載機關 JSON 範例</button><button onClick={openOrganisationFolder}>開啟機關模組</button></div>
+        <div className="profile-actions"><button onClick={saveAsProfile}>另存設定檔</button><button disabled={profile?.profile_id === 'uk-tech-law'} onClick={removeProfile}>刪除</button></div>
         <div className="dates"><label>開始日期<input type="date" value={since} onChange={event => setSince(event.target.value)} /></label><label>結束日期<input type="date" value={until} onChange={event => setUntil(event.target.value)} /></label></div>
         <label>最低相關性分數<input type="number" min="1" max="99" value={minimumScore} onChange={event => setMinimumScore(Number(event.target.value))} /></label>
         <label>Excel 日期<select value={calendar} onChange={event => setCalendar(event.target.value)}><option value="gregorian">西元</option><option value="roc">民國</option></select></label>
         <label>輸出檔<div className="file"><input value={output} onChange={event => setOutput(event.target.value)} /><button onClick={choose}>選擇</button></div></label>
         {running ? <button className="run cancel" onClick={cancel}>取消執行</button> : <button className="run" disabled={!output || selected.size === 0} onClick={run}>開始執行</button>}{error && <pre className="error">{error}</pre>}
       </div>
-      <div className="panel sources"><div className="source-head"><div><h2>官方來源</h2><small>{selected.size} 個來源已選取{registry ? ` · registry ${registry.registry_hash.slice(0, 12)}` : ''}</small></div><input placeholder="搜尋來源" value={query} onChange={event => setQuery(event.target.value)} /></div><div className="cards">{shown.map(source => { const module = registry?.modules.find(item => item.canonical_id === source.short_name); return <label className="source" key={source.short_name}><input type="checkbox" checked={selected.has(source.short_name)} onChange={() => setSelected(previous => { const next = new Set(previous); next.has(source.short_name) ? next.delete(source.short_name) : next.add(source.short_name); return next })} /><span><strong>{source.short_name}</strong><em>{source.name_zh}</em><small>{module?.external ? '外部覆寫' : '內建'} · {source.topics.join(' · ')}</small></span></label> })}</div></div>
+      <div className="panel sources"><div className="source-head"><div><h2>官方來源</h2><small>{selected.size} 個來源已選取</small></div><input placeholder="搜尋來源" value={query} onChange={event => setQuery(event.target.value)} /></div><div className="cards">{shown.map(source => <label className="source" key={source.short_name}><input type="checkbox" checked={selected.has(source.short_name)} onChange={() => setSelected(previous => { const next = new Set(previous); next.has(source.short_name) ? next.delete(source.short_name) : next.add(source.short_name); return next })} /><span><strong>{source.short_name}</strong><em>{source.name_zh}</em><small>{source.topics.join(' · ')}</small></span></label>)}</div></div>
     </section>
     {profile && <section className="profile"><b>{profile.name}</b><span>{profile.description}</span><span>最低分數 {minimumScore}</span></section>}
     {profile && <section className="panel keyword-editor"><h2>關鍵詞規則</h2><p>可用逗號或換行分隔；變更會套用於本次執行，另存設定檔後可重複使用。</p>{profile.topics.map((topic, index) => <details key={topic.name}><summary>{topic.name}</summary><div className="keyword-grid">{['core', 'general', 'supporting'].map(strength => <label key={strength}>{strength === 'core' ? '核心' : strength === 'general' ? '一般' : '輔助'}<textarea value={topic.keywords.filter(item => item.strength === strength).map(item => item.phrase).join(', ')} onChange={event => updateKeywords(index, strength, event.target.value)} /></label>)}</div></details>)}</section>}

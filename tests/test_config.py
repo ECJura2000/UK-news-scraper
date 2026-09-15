@@ -34,11 +34,3 @@ def test_dsit_split_successors_replace_legacy_departments():
     assert agencies["AISI"].name_en == "AI Security Institute"
     assert SOURCE_HEALTH_MAX_AGE_DAYS["BIST"] == 14
     assert SOURCE_HEALTH_MAX_AGE_DAYS["DCMS"] == 14
-
-
-def test_ofcom_uses_accessible_gov_uk_feed_instead_of_blocked_endpoints():
-    ofcom = next(agency for agency in AGENCIES if agency.short_name == "Ofcom")
-
-    assert ofcom.feeds == ("https://www.gov.uk/government/organisations/ofcom.atom",)
-    assert not ofcom.news_pages
-    assert not ofcom.official_pages

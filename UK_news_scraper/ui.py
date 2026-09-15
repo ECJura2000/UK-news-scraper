@@ -22,8 +22,7 @@ from .app_service import (
     execute_run,
 )
 from .calendar_utils import CalendarMode, format_date
-from .config import AGENCIES, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR, ORGANISATION_REGISTRY
-from .organisation_registry import export_organisation_template, external_registry_dir
+from .config import AGENCIES, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR
 from .profiles import (
     DEFAULT_PROFILE_ID,
     PARLIAMENT_SOURCE_ID,
@@ -76,9 +75,6 @@ class UKNewsApp(tk.Tk):
         profile_report = load_profiles_with_recovery()
         self._profiles = profile_report.profiles
         self._profile_warning = profile_report.warning
-        if ORGANISATION_REGISTRY.errors:
-            registry_warning = "機關模組已回退或略過：\n" + "\n".join(ORGANISATION_REGISTRY.errors)
-            self._profile_warning = "\n\n".join(filter(None, (self._profile_warning, registry_warning)))
         self._edit_topics: list[dict[str, object]] = []
         self._source_vars: dict[str, tk.BooleanVar] = {}
         self._cancel_event = threading.Event()
@@ -350,8 +346,6 @@ class UKNewsApp(tk.Tk):
             ("刪除", self._delete_profile),
             ("匯入", self._import_profile),
             ("匯出", self._export_profile),
-            ("機關 JSON 範例", self._export_organisation_template),
-            ("開啟機關模組", self._open_organisation_folder),
         ):
             ttk.Button(toolbar, text=label, command=command).pack(side="left", padx=(8, 0))
 
@@ -376,17 +370,8 @@ class UKNewsApp(tk.Tk):
         body.add(topics, weight=1)
         body.add(keywords, weight=2)
         ttk.Label(sources, text="資料來源", style="Heading.TLabel").pack(anchor="w", pady=(0, 8))
-        module_sources = {
-            module.canonical_id: "外部覆寫" if module.external else "內建"
-            for module in ORGANISATION_REGISTRY.modules
-        }
-        ttk.Label(
-            sources,
-            text=f"Registry {ORGANISATION_REGISTRY.registry_hash[:12]}",
-            style="Surface.TLabel",
-        ).pack(anchor="w", pady=(0, 6))
         for source_id, label in [
-            *((agency.short_name, f"{agency.display_name} [{module_sources[agency.short_name]}]") for agency in AGENCIES),
+            *((agency.short_name, agency.display_name) for agency in AGENCIES),
             (PARLIAMENT_SOURCE_ID, "UK Parliament 研究資料"),
         ]:
             variable = tk.BooleanVar(value=True)
@@ -625,13 +610,8 @@ class UKNewsApp(tk.Tk):
         self._edit_topics = [
             {
                 "name": topic.name,
-                "minimum_bm25_score": topic.minimum_bm25_score,
                 "keywords": [
-                    {
-                        "phrase": keyword.phrase,
-                        "strength": keyword.strength,
-                        "synonyms": keyword.synonyms,
-                    }
+                    {"phrase": keyword.phrase, "strength": keyword.strength}
                     for keyword in topic.keywords
                 ],
             }
@@ -648,7 +628,6 @@ class UKNewsApp(tk.Tk):
         self._load_profile(selected_id)
 
     def _profile_from_form(self) -> FilterProfile:
-        base_profile = self._profiles[self._profile_label_to_id[self.profile_var.get()]]
         topics = tuple(
             ProfileTopic(
                 name=str(topic["name"]),
@@ -656,11 +635,9 @@ class UKNewsApp(tk.Tk):
                     KeywordDefinition(
                         phrase=str(keyword["phrase"]),
                         strength=keyword["strength"],
-                        synonyms=tuple(keyword.get("synonyms", ())),
                     )
                     for keyword in topic["keywords"]
                 ),
-                minimum_bm25_score=float(topic.get("minimum_bm25_score", 0.0)),
             )
             for topic in self._edit_topics
         )
@@ -669,16 +646,12 @@ class UKNewsApp(tk.Tk):
                 profile_id=safe_profile_id(self.profile_id_var.get()),
                 name=self.profile_name_var.get().strip(),
                 description="由 UK 新聞查詢工作台建立",
-                version=2,
+                version=1,
                 selected_sources=tuple(
                     source_id for source_id, variable in self._source_vars.items() if variable.get()
                 ),
                 topics=topics,
                 minimum_score=int(self.threshold_var.get()),
-                ranking_method=base_profile.ranking_method,
-                bm25_k1=base_profile.bm25_k1,
-                bm25_b=base_profile.bm25_b,
-                title_weight=base_profile.title_weight,
             )
         )
 
@@ -781,20 +754,6 @@ class UKNewsApp(tk.Tk):
                 json.dumps(profile_to_dict(profile), ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-
-    def _export_organisation_template(self) -> None:
-        path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            initialfile="organisation.example.json",
-            filetypes=[("JSON", "*.json")],
-        )
-        if path:
-            export_organisation_template(path)
-
-    def _open_organisation_folder(self) -> None:
-        path = external_registry_dir()
-        path.mkdir(parents=True, exist_ok=True)
-        self._open_path(path)
 
     def _refresh_topics(self) -> None:
         self.topic_tree.delete(*self.topic_tree.get_children())

@@ -1,8 +1,0 @@
-{
-  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "NPSA",
-  "names": {"zh": "國家保護安全局", "en": "National Protective Security Authority", "short": "NPSA", "publisher_aliases": []},
-  "sources": {"homepage": "https://www.npsa.gov.uk/", "feeds": [], "news_pages": ["https://www.npsa.gov.uk/blog"], "official_pages": [], "adapter": "html_index", "fallbacks": ["google_news"]},
-  "filter": {"topics": ["網路安全/資安"], "include_path_patterns": [], "exclude_title_patterns": []},
-  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 60},
-  "history": {"effective_from": "2023-03-13", "predecessors": ["CPNI"], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
-}

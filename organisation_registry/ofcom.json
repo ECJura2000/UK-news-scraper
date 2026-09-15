@@ -1,8 +1,0 @@
-{
-  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "Ofcom",
-  "names": {"zh": "英國通訊管理局", "en": "Office of Communications", "short": "Ofcom", "publisher_aliases": ["Ofcom"]},
-  "sources": {"homepage": "https://www.ofcom.org.uk/", "feeds": ["https://www.gov.uk/government/organisations/ofcom.atom"], "news_pages": [], "official_pages": [], "adapter": "govuk_atom", "fallbacks": ["google_news"]},
-  "filter": {"topics": ["數位平台"], "include_path_patterns": [], "exclude_title_patterns": []},
-  "health": {"critical": true, "minimum_items": 1, "maximum_age_days": 14},
-  "history": {"effective_from": "2003-12-29", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
-}

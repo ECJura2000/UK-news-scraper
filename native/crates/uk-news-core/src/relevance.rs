@@ -43,7 +43,6 @@ struct ScoreOutcome {
     level: String,
     title_strengths: BTreeMap<String, String>,
     summary_strengths: BTreeMap<String, String>,
-    synonyms: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -58,28 +57,16 @@ fn score_text(title: &str, summary: &str, profile: &FilterProfile) -> ScoreOutco
     let summary = strip_boilerplate(summary);
     let mut title_matches = vec![];
     let mut summary_matches = vec![];
-    let mut synonyms = BTreeSet::new();
     for topic in &profile.topics {
         for keyword in &topic.keywords {
-            for synonym in &keyword.synonyms {
-                if contains(&title, synonym) || contains(&summary, synonym) {
-                    synonyms.insert(synonym.clone());
-                }
-            }
-            let title_variant = std::iter::once(&keyword.phrase)
-                .chain(keyword.synonyms.iter())
-                .find(|variant| contains(&title, variant));
-            let summary_variant = std::iter::once(&keyword.phrase)
-                .chain(keyword.synonyms.iter())
-                .find(|variant| contains(&summary, variant));
-            if title_variant.is_some() {
+            if contains(&title, &keyword.phrase) {
                 title_matches.push(KeywordHit {
                     topic: topic.name.clone(),
                     phrase: keyword.phrase.clone(),
                     strength: keyword.strength.clone(),
                 });
             }
-            if summary_variant.is_some() {
+            if contains(&summary, &keyword.phrase) {
                 summary_matches.push(KeywordHit {
                     topic: topic.name.clone(),
                     phrase: keyword.phrase.clone(),
@@ -141,7 +128,6 @@ fn score_text(title: &str, summary: &str, profile: &FilterProfile) -> ScoreOutco
         level,
         title_strengths: ts,
         summary_strengths: ss,
-        synonyms: synonyms.into_iter().collect(),
     }
 }
 
@@ -235,7 +221,6 @@ pub fn assess_news(item: &mut NewsItem, profile: &FilterProfile) -> bool {
         level,
         title_strengths: ts,
         summary_strengths: ss,
-        synonyms,
     } = score_text(&item.title, &item.summary, profile);
     item.matched_topics = topics;
     item.core_matched_keywords = core;
@@ -251,9 +236,7 @@ pub fn assess_news(item: &mut NewsItem, profile: &FilterProfile) -> bool {
     item.summary_matched_keywords = ss.keys().cloned().collect();
     item.title_keyword_strengths = ts;
     item.summary_keyword_strengths = ss;
-    item.matched_synonyms = synonyms;
-    item.boolean_score = score;
-    item.relevance_score = f64::from(score);
+    item.relevance_score = score;
     item.relevance_level = level;
     score >= profile.minimum_score
 }
@@ -278,330 +261,9 @@ pub fn assess_parliament(item: &mut ParliamentBriefing, profile: &FilterProfile)
         item.supporting_matched_keywords.clone(),
     ]
     .concat();
-    item.boolean_score = score;
-    item.relevance_score = f64::from(score);
+    item.relevance_score = score;
     item.relevance_level = level;
     score >= profile.minimum_score
-}
-
-pub fn apply_hybrid_filter(
-    news: &mut [NewsItem],
-    parliament: &mut [ParliamentBriefing],
-    profile: &FilterProfile,
-) -> (Vec<NewsItem>, Vec<ParliamentBriefing>) {
-    apply_hybrid_filter_with_topics(news, parliament, profile, None)
-}
-
-pub fn apply_hybrid_filter_with_topics(
-    news: &mut [NewsItem],
-    parliament: &mut [ParliamentBriefing],
-    profile: &FilterProfile,
-    allowed_topics: Option<&BTreeMap<String, BTreeSet<String>>>,
-) -> (Vec<NewsItem>, Vec<ParliamentBriefing>) {
-    if profile.ranking_method != "hybrid_bm25" {
-        return (
-            news.iter_mut()
-                .filter_map(|item| assess_news(item, profile).then(|| item.clone()))
-                .collect(),
-            parliament
-                .iter_mut()
-                .filter_map(|item| assess_parliament(item, profile).then(|| item.clone()))
-                .collect(),
-        );
-    }
-    let documents: Vec<Vec<String>> = news
-        .iter()
-        .map(|item| document_tokens(&item.title, &item.summary, profile.title_weight))
-        .chain(
-            parliament
-                .iter()
-                .map(|item| document_tokens(&item.title, &item.summary, profile.title_weight)),
-        )
-        .collect();
-    if documents.is_empty() {
-        return (vec![], vec![]);
-    }
-    let mut dfs: BTreeMap<String, usize> = BTreeMap::new();
-    for document in &documents {
-        for token in document.iter().cloned().collect::<BTreeSet<_>>() {
-            *dfs.entry(token).or_default() += 1;
-        }
-    }
-    let average = documents.iter().map(Vec::len).sum::<usize>() as f64 / documents.len() as f64;
-    let mut filtered_news = vec![];
-    let news_len = news.len();
-    for (index, item) in news.iter_mut().enumerate() {
-        let allowed = item
-            .unit_category
-            .as_ref()
-            .and_then(|source| allowed_topics.and_then(|topics| topics.get(source)));
-        if score_hybrid_news(
-            item,
-            &documents[index],
-            &dfs,
-            average,
-            documents.len(),
-            profile,
-            allowed,
-        ) {
-            filtered_news.push(item.clone());
-        }
-    }
-    let mut filtered_parliament = vec![];
-    for (index, item) in parliament.iter_mut().enumerate() {
-        if score_hybrid_parliament(
-            item,
-            &documents[news_len + index],
-            &dfs,
-            average,
-            documents.len(),
-            profile,
-        ) {
-            filtered_parliament.push(item.clone());
-        }
-    }
-    filtered_news.sort_by(|a, b| {
-        b.bm25_score
-            .total_cmp(&a.bm25_score)
-            .then_with(|| a.published_at.cmp(&b.published_at))
-            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-            .then_with(|| a.link.cmp(&b.link))
-    });
-    filtered_parliament.sort_by(|a, b| {
-        b.bm25_score
-            .total_cmp(&a.bm25_score)
-            .then_with(|| a.published_at.cmp(&b.published_at))
-            .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-            .then_with(|| a.webpage_url.cmp(&b.webpage_url))
-    });
-    (filtered_news, filtered_parliament)
-}
-
-fn score_hybrid_news(
-    item: &mut NewsItem,
-    document: &[String],
-    dfs: &BTreeMap<String, usize>,
-    average: f64,
-    count: usize,
-    profile: &FilterProfile,
-    allowed: Option<&BTreeSet<String>>,
-) -> bool {
-    if !assess_news(item, profile) {
-        return false;
-    }
-    let scores = topic_scores(
-        &item.title,
-        &item.summary,
-        document,
-        dfs,
-        average,
-        count,
-        profile,
-        allowed,
-    );
-    apply_bm25(
-        &mut item.matched_topics,
-        &mut item.bm25_topic_scores,
-        &mut item.bm25_score,
-        &mut item.relevance_score,
-        &mut item.relevance_level,
-        scores,
-        profile,
-    )
-}
-
-fn score_hybrid_parliament(
-    item: &mut ParliamentBriefing,
-    document: &[String],
-    dfs: &BTreeMap<String, usize>,
-    average: f64,
-    count: usize,
-    profile: &FilterProfile,
-) -> bool {
-    if !assess_parliament(item, profile) {
-        return false;
-    }
-    let scores = topic_scores(
-        &item.title,
-        &item.summary,
-        document,
-        dfs,
-        average,
-        count,
-        profile,
-        None,
-    );
-    apply_bm25(
-        &mut item.matched_topics,
-        &mut item.bm25_topic_scores,
-        &mut item.bm25_score,
-        &mut item.relevance_score,
-        &mut item.relevance_level,
-        scores,
-        profile,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn topic_scores(
-    title: &str,
-    summary: &str,
-    document: &[String],
-    dfs: &BTreeMap<String, usize>,
-    average: f64,
-    count: usize,
-    profile: &FilterProfile,
-    allowed: Option<&BTreeSet<String>>,
-) -> BTreeMap<String, f64> {
-    let mut scores = BTreeMap::new();
-    for topic in &profile.topics {
-        if allowed.is_some_and(|topics| !topics.contains(&topic.name)) {
-            continue;
-        }
-        let single = FilterProfile {
-            topics: vec![topic.clone()],
-            ..profile.clone()
-        };
-        if score_text(title, summary, &single).score < profile.minimum_score {
-            continue;
-        }
-        let mut query = BTreeMap::new();
-        for keyword in &topic.keywords {
-            let weight = match keyword.strength {
-                KeywordStrength::Core => 3.0_f64,
-                KeywordStrength::General => 2.0_f64,
-                KeywordStrength::Supporting => 1.0_f64,
-            };
-            for variant in std::iter::once(&keyword.phrase).chain(keyword.synonyms.iter()) {
-                for token in tokenize(variant) {
-                    query
-                        .entry(token)
-                        .and_modify(|value: &mut f64| *value = value.max(weight))
-                        .or_insert(weight);
-                }
-            }
-        }
-        let frequencies = document
-            .iter()
-            .cloned()
-            .fold(BTreeMap::new(), |mut map, token| {
-                *map.entry(token).or_insert(0usize) += 1;
-                map
-            });
-        let ratio = document.len() as f64 / average;
-        let mut score = 0.0;
-        for (token, weight) in query {
-            let frequency = *frequencies.get(&token).unwrap_or(&0) as f64;
-            if frequency == 0.0 {
-                continue;
-            }
-            let df = *dfs.get(&token).unwrap_or(&0) as f64;
-            let idf = (1.0 + (count as f64 - df + 0.5) / (df + 0.5)).ln();
-            score += weight * idf * frequency * (profile.bm25_k1 + 1.0)
-                / (frequency + profile.bm25_k1 * (1.0 - profile.bm25_b + profile.bm25_b * ratio));
-        }
-        scores.insert(topic.name.clone(), (score * 10_000.0).round() / 10_000.0);
-    }
-    scores
-}
-
-fn apply_bm25(
-    topics: &mut Vec<String>,
-    target: &mut BTreeMap<String, f64>,
-    bm25: &mut f64,
-    relevance: &mut f64,
-    level: &mut String,
-    scores: BTreeMap<String, f64>,
-    profile: &FilterProfile,
-) -> bool {
-    let accepted: Vec<String> = profile
-        .topics
-        .iter()
-        .filter(|topic| {
-            scores
-                .get(&topic.name)
-                .is_some_and(|score| *score >= topic.minimum_bm25_score)
-        })
-        .map(|topic| topic.name.clone())
-        .collect();
-    if accepted.is_empty() {
-        return false;
-    }
-    *bm25 = accepted
-        .iter()
-        .filter_map(|topic| scores.get(topic))
-        .copied()
-        .fold(0.0, f64::max);
-    *relevance = *bm25;
-    *level = if *bm25 >= 12.0 {
-        "高"
-    } else if *bm25 >= 8.0 {
-        "中"
-    } else {
-        "低"
-    }
-    .into();
-    *topics = accepted;
-    *target = scores;
-    true
-}
-
-fn document_tokens(title: &str, summary: &str, title_weight: f64) -> Vec<String> {
-    let title = tokenize(&strip_boilerplate(title));
-    let mut output = vec![];
-    for _ in 0..title_weight.round().max(1.0) as usize {
-        output.extend(title.clone());
-    }
-    output.extend(tokenize(&strip_boilerplate(summary)));
-    output
-}
-
-fn tokenize(value: &str) -> Vec<String> {
-    const STOP: &[&str] = &[
-        "a",
-        "an",
-        "and",
-        "are",
-        "as",
-        "at",
-        "be",
-        "been",
-        "being",
-        "by",
-        "for",
-        "from",
-        "has",
-        "have",
-        "in",
-        "into",
-        "is",
-        "it",
-        "its",
-        "of",
-        "on",
-        "or",
-        "that",
-        "the",
-        "their",
-        "this",
-        "to",
-        "was",
-        "were",
-        "will",
-        "with",
-        "uk",
-        "united",
-        "kingdom",
-        "government",
-        "new",
-        "news",
-    ];
-    value
-        .to_lowercase()
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty() && !STOP.contains(token))
-        .map(Into::into)
-        .collect()
 }
 
 #[cfg(test)]
@@ -621,26 +283,18 @@ mod tests {
                     KeywordDefinition {
                         phrase: "alpha framework".into(),
                         strength: KeywordStrength::Core,
-                        synonyms: vec![],
                     },
                     KeywordDefinition {
                         phrase: "beta rule".into(),
                         strength: KeywordStrength::General,
-                        synonyms: vec![],
                     },
                     KeywordDefinition {
                         phrase: "technology".into(),
                         strength: KeywordStrength::Supporting,
-                        synonyms: vec![],
                     },
                 ],
-                minimum_bm25_score: 0.0,
             }],
             minimum_score,
-            ranking_method: "weighted_keywords".into(),
-            bm25_k1: 1.2,
-            bm25_b: 0.75,
-            title_weight: 2.0,
         }
     }
     #[test]
@@ -684,21 +338,14 @@ mod tests {
                     KeywordDefinition {
                         phrase: "GOV.UK One Login".into(),
                         strength: KeywordStrength::Core,
-                        synonyms: vec![],
                     },
                     KeywordDefinition {
                         phrase: "One Login".into(),
                         strength: KeywordStrength::Core,
-                        synonyms: vec![],
                     },
                 ],
-                minimum_bm25_score: 0.0,
             }],
             minimum_score: 3,
-            ranking_method: "weighted_keywords".into(),
-            bm25_k1: 1.2,
-            bm25_b: 0.75,
-            title_weight: 2.0,
         };
         let result = score_text("GOV.UK One Login roadmap published", "", &p);
         assert_eq!(result.core, vec!["GOV.UK One Login"]);
@@ -717,15 +364,9 @@ mod tests {
                 keywords: vec![KeywordDefinition {
                     phrase: "technology".into(),
                     strength: KeywordStrength::General,
-                    synonyms: vec![],
                 }],
-                minimum_bm25_score: 0.0,
             }],
             minimum_score: 3,
-            ranking_method: "weighted_keywords".into(),
-            bm25_k1: 1.2,
-            bm25_b: 0.75,
-            title_weight: 2.0,
         };
         assert_eq!(
             score_text(

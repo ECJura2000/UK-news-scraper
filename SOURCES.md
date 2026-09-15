@@ -1,31 +1,28 @@
 # 資料來源
 
-本專案整理英國政府機關、監管機關與 UK Parliament 公開發布的新聞及研究資料。機關來源、健康門檻、主題白名單及改組沿革的單一資料來源為 [`organisation_registry/`](organisation_registry/)；UK Parliament 維持獨立來源。
+本專案整理英國政府機關、監管機關與 UK Parliament 公開發布的新聞及研究資料。程式實際使用的最新來源仍以 [`UK_news_scraper/config.py`](UK_news_scraper/config.py) 與 Parliament scraper 為準。
 
 ## 機關新聞來源
 
 | 簡稱 | 機關 | 官方首頁／新聞頁 | RSS／Atom |
 | --- | --- | --- | --- |
-| BIST | Department for Business, Innovation, Science and Trade | [GOV.UK](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade) | [BIST Atom](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade.atom)；[DBT 過渡補充 Atom](https://www.gov.uk/government/organisations/department-for-business-and-trade.atom) |
-| DSIT Transition | Department for Science, Innovation and Technology | [GOV.UK 過渡頁面](https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology) | [Atom](https://www.gov.uk/government/organisations/department-for-science-innovation-and-technology.atom) |
+| BIST | Department for Business, Innovation, Science and Trade | [GOV.UK](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade) | [Atom](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade.atom) |
 | DCMS | Department for Digital, Culture, Media and Sport | [GOV.UK current department page](https://www.gov.uk/government/organisations/department-for-culture-media-and-sport) | [Atom](https://www.gov.uk/government/organisations/department-for-culture-media-and-sport.atom) |
 | AISI | AI Security Institute | [GOV.UK](https://www.gov.uk/government/organisations/ai-safety-institute) | [Atom](https://www.gov.uk/government/organisations/ai-safety-institute.atom) |
 | ICO | Information Commissioner's Office | [News and blogs](https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/) | 網站自動發現或 HTML |
 | CMA | Competition and Markets Authority | [GOV.UK](https://www.gov.uk/government/organisations/competition-and-markets-authority) | [Atom](https://www.gov.uk/government/organisations/competition-and-markets-authority.atom) |
 | UK IPO | UK Intellectual Property Office | [GOV.UK](https://www.gov.uk/government/organisations/intellectual-property-office) | [Atom](https://www.gov.uk/government/organisations/intellectual-property-office.atom) |
 | GDS | Government Digital Service | [GOV.UK](https://www.gov.uk/government/organisations/government-digital-service) | [Atom](https://www.gov.uk/government/organisations/government-digital-service.atom) |
-| Ofcom | Office of Communications | [News and updates](https://www.ofcom.org.uk/news-and-updates) | [GOV.UK Atom](https://www.gov.uk/government/organisations/ofcom.atom)；Google News RSS 補充官網新聞 |
+| Ofcom | Office of Communications | [News and updates](https://www.ofcom.org.uk/news-and-updates) | [RSS](https://www.ofcom.org.uk/news-centre/rss) |
 | NCSC | National Cyber Security Centre | [Homepage](https://www.ncsc.gov.uk/)；[Guidance collection](https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation) | [RSS](https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml)；官方 Guidance 頁面 |
-| Electoral Commission | Electoral Commission | [Media centre](https://www.electoralcommission.org.uk/news-and-views/media-centre) | 官方 sitemap 與新聞頁；失敗時使用 Google News RSS 備援 |
+| Electoral Commission | Electoral Commission | [Media centre](https://www.electoralcommission.org.uk/news-and-views/media-centre) | HTML；失敗時使用 Google News RSS 備援 |
 | Cabinet Office | Cabinet Office | [GOV.UK](https://www.gov.uk/government/organisations/cabinet-office) | [Atom](https://www.gov.uk/government/organisations/cabinet-office.atom) |
-| NPSA | National Protective Security Authority | [Blog](https://www.npsa.gov.uk/blog) | 瀏覽器 TLS 重試；期間內無 blog 或官網受阻時使用 Google News RSS 補充 |
+| NPSA | National Protective Security Authority | [Blog](https://www.npsa.gov.uk/blog) | 官網受阻時使用 Google News RSS 備援 |
 | UKRI | UK Research and Innovation | [News](https://www.ukri.org/news/)、[evaluation reports](https://www.ukri.org/who-we-are/how-we-are-doing/evaluation-reports/browse/)、[investment and outputs](https://www.ukri.org/what-we-do/what-we-have-funded/investment-and-outputs-publication/) | [Feed](https://www.ukri.org/feed/) |
 
 2026 年 7 月的政府組織調整將 DSIT 職能重新分配：BIST 承接科學、研究與
 創新；DCMS 承接電信、線上安全、數位身分與 GDS；Cabinet Office 承接
-AI 策略、公部門 AI 採用與 AI Security Institute。DSIT 舊頁及 feed 仍有效時
-會獨立抓取並接受健康檢查，實際 publisher 由 GOV.UK Content API 核對；
-責任機關僅另行標示，不會覆蓋發布機關。程式使用仍持續更新的
+AI 策略、公部門 AI 採用與 AI Security Institute。程式使用仍持續更新的
 現行 DCMS GOV.UK slug，不使用標示為 2017 至 2023 年且已撤回的舊
 `department-for-digital-culture-media-sport` feed。
 
@@ -51,7 +48,7 @@ GOV.UK Atom 來源會保留 `/government/news/`、`/guidance/`、
 
 | 服務 | 用途 | 注意事項 |
 | --- | --- | --- |
-| [Google News RSS](https://news.google.com/) | Ofcom 新聞補充，以及 NPSA 與 Electoral Commission 官網無法讀取時的備援搜尋 | 非官方來源；結果會過濾雜訊，仍應回到原始新聞頁查核 |
+| [Google News RSS](https://news.google.com/) | NPSA 與 Electoral Commission 官網無法讀取時的備援搜尋 | 非官方來源；結果會過濾雜訊，仍應回到原始新聞頁查核 |
 | `googletrans`／`deep-translator` | 英文標題與摘要翻譯 | 可能將文字傳送至外部翻譯服務；不得用於機密或未公開內容 |
 
 ## 維護要求

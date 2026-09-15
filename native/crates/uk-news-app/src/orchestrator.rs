@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use uk_news_core::{
-    apply_hybrid_filter_with_topics, make_data_fingerprint, make_delivery_id, FilterProfile,
+    assess_news, assess_parliament, make_data_fingerprint, make_delivery_id, FilterProfile,
     NewsItem, ParliamentBriefing, RunStatus, RunSummary,
 };
 use uk_news_export::{export_news, CalendarMode, ExportOptions};
@@ -147,16 +147,18 @@ async fn finalize(
     mut agencies: FetchResult<NewsItem>,
     mut parliament: FetchResult<ParliamentBriefing>,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
-    let organisation_registry = uk_news_sources::organisation_registry();
-    let topic_whitelist = organisation_registry.topics_by_source();
-    let (mut filtered, filtered_p) = apply_hybrid_filter_with_topics(
-        &mut agencies.items,
-        &mut parliament.items,
-        &options.profile,
-        Some(&topic_whitelist),
-    );
-    apply_organisation_metadata(&mut agencies.items, &organisation_registry);
-    apply_organisation_metadata(&mut filtered, &organisation_registry);
+    let mut filtered = vec![];
+    for item in &mut agencies.items {
+        if assess_news(item, &options.profile) {
+            filtered.push(item.clone())
+        }
+    }
+    let mut filtered_p = vec![];
+    for item in &mut parliament.items {
+        if assess_parliament(item, &options.profile) {
+            filtered_p.push(item.clone())
+        }
+    }
     let texts = agencies.items.iter().map(|x| x.title.clone()).chain(
         parliament
             .items
@@ -204,45 +206,7 @@ async fn finalize(
     warnings.append(&mut translation_warnings);
     warnings.sort();
     warnings.dedup();
-    let mut organisation_changes = vec![];
-    organisation_changes.extend(
-        organisation_registry
-            .errors
-            .iter()
-            .map(|error| format!("module_error:{error}")),
-    );
-    if health
-        .iter()
-        .any(|item| item.source == "DSIT Transition" && !item.success)
-    {
-        organisation_changes.push("transitional_source_unavailable:DSIT Transition".into());
-    }
-    let known_publishers = organisation_registry
-        .modules
-        .iter()
-        .flat_map(|module| {
-            std::iter::once(module.names.en.clone()).chain(module.names.publisher_aliases.clone())
-        })
-        .collect::<std::collections::HashSet<_>>();
-    for publisher in agencies
-        .items
-        .iter()
-        .map(|item| &item.publisher_organisation)
-    {
-        if !publisher.is_empty() && !known_publishers.contains(publisher) {
-            organisation_changes.push(format!("unknown_publisher:{publisher}"));
-        }
-    }
-    organisation_changes.sort();
-    organisation_changes.dedup();
-    warnings.extend(
-        organisation_changes
-            .iter()
-            .map(|change| format!("organisation_change_detected:{change}")),
-    );
-    let status = if health.iter().all(|x| x.success && x.warning.is_empty())
-        && organisation_changes.is_empty()
-    {
+    let status = if health.iter().all(|x| x.success && x.warning.is_empty()) {
         RunStatus::Complete
     } else {
         RunStatus::Degraded
@@ -275,66 +239,11 @@ async fn finalize(
             CalendarMode::Roc => "roc",
         }
         .into(),
-        filter_method: options.profile.ranking_method.clone(),
-        organisation_registry_version: organisation_registry.registry_hash.clone(),
-        organisation_changes: organisation_changes.clone(),
-        transitional_sources: vec!["BIST:DBT".into(), "DSIT Transition".into()],
-        organisation_audit_status: if organisation_changes.is_empty() {
-            "ok"
-        } else {
-            "degraded"
-        }
-        .into(),
-        organisation_modules: organisation_registry.module_summaries(),
-        organisation_module_errors: organisation_registry.errors.clone(),
-        organisation_registry_hash: organisation_registry.registry_hash.clone(),
     };
     let summary_path = options.output.with_extension("run.json");
     atomic_json(&summary_path, &summary)?;
     atomic_json(&data_path_for_summary(&summary_path), &data)?;
     Ok((options.output, summary_path, summary))
-}
-
-fn apply_organisation_metadata(
-    items: &mut [NewsItem],
-    registry: &uk_news_core::OrganisationRegistry,
-) {
-    for item in items {
-        if item.publisher_organisation.is_empty() {
-            item.publisher_organisation = item.agency_en.clone();
-        }
-        let Some(module) = item.unit_category.as_deref().and_then(|id| {
-            registry
-                .modules
-                .iter()
-                .find(|module| module.canonical_id == id)
-        }) else {
-            continue;
-        };
-        let mut owners = module
-            .history
-            .successors
-            .iter()
-            .filter(|owner| {
-                item.matched_topics
-                    .iter()
-                    .any(|topic| module.responsibility_by_topic.get(topic) == Some(*owner))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        for topic in &item.matched_topics {
-            if let Some(owner) = module.responsibility_by_topic.get(topic) {
-                if !owners.contains(owner) {
-                    owners.push(owner.clone());
-                }
-            }
-        }
-        item.responsibility_owner = if owners.is_empty() {
-            module.canonical_id.clone()
-        } else {
-            owners.join(" / ")
-        };
-    }
 }
 
 fn utc_range(since: NaiveDate, until: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {

@@ -127,9 +127,9 @@ def test_data_fingerprint_is_independent_of_record_order():
     assert make_data_fingerprint([first, second], []) == make_data_fingerprint([second, first], [])
 
 
-def test_fingerprint_v4_matches_shared_rust_golden_fixture():
+def test_fingerprint_v3_matches_shared_rust_golden_fixture():
     fixture = json.loads(
-        (Path(__file__).parent / "fixtures" / "fingerprint_v4_golden.json").read_text(
+        (Path(__file__).parent / "fixtures" / "fingerprint_v3_golden.json").read_text(
             encoding="utf-8"
         )
     )

@@ -1,8 +1,0 @@
-{
-  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "UK IPO",
-  "names": {"zh": "英國智財局", "en": "UK Intellectual Property Office", "short": "UK IPO", "publisher_aliases": ["Intellectual Property Office"]},
-  "sources": {"homepage": "https://www.gov.uk/government/organisations/intellectual-property-office", "feeds": ["https://www.gov.uk/government/organisations/intellectual-property-office.atom"], "news_pages": [], "official_pages": ["https://www.gov.uk/government/organisations/intellectual-property-office"], "adapter": "govuk_atom", "fallbacks": []},
-  "filter": {"topics": ["AI"], "include_path_patterns": ["/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"], "exclude_title_patterns": []},
-  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 45},
-  "history": {"effective_from": "2007-04-02", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
-}

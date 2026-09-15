@@ -1,8 +1,0 @@
-{
-  "schema_version": 1, "module_version": "2026-07-22.1", "canonical_id": "DCMS",
-  "names": {"zh": "數位、文化、媒體及體育部", "en": "Department for Digital, Culture, Media and Sport", "short": "DCMS", "publisher_aliases": ["Department for Culture, Media and Sport"]},
-  "sources": {"homepage": "https://www.gov.uk/government/organisations/department-for-culture-media-and-sport", "feeds": ["https://www.gov.uk/government/organisations/department-for-culture-media-and-sport.atom"], "news_pages": [], "official_pages": ["https://www.gov.uk/government/organisations/department-for-culture-media-and-sport"], "adapter": "govuk_atom", "fallbacks": []},
-  "filter": {"topics": ["資料治理/隱私/數位身份", "數位平台", "網路安全/資安"], "include_path_patterns": ["/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"], "exclude_title_patterns": []},
-  "health": {"critical": true, "minimum_items": 1, "maximum_age_days": 14},
-  "history": {"effective_from": "2026-07-22", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
-}

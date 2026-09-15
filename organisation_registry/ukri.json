@@ -1,8 +1,0 @@
-{
-  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "UKRI",
-  "names": {"zh": "英國研究與創新總署", "en": "UK Research and Innovation", "short": "UKRI", "publisher_aliases": []},
-  "sources": {"homepage": "https://www.ukri.org/", "feeds": ["https://www.ukri.org/feed/"], "news_pages": [], "official_pages": ["https://www.ukri.org/news/", "https://www.ukri.org/who-we-are/how-we-are-doing/evaluation-reports/browse/", "https://www.ukri.org/what-we-do/what-we-have-funded/investment-and-outputs-publication/"], "adapter": "generic_rss", "fallbacks": []},
-  "filter": {"topics": ["半導體/量子技術"], "include_path_patterns": [], "exclude_title_patterns": []},
-  "health": {"critical": false, "minimum_items": 0, "maximum_age_days": 60},
-  "history": {"effective_from": "2018-04-01", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
-}

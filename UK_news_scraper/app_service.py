@@ -7,23 +7,10 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from .calendar_utils import CalendarMode, output_filename
-from .config import (
-    AGENCIES,
-    DEFAULT_MAX_WORKERS,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_TIMEZONE,
-    ORGANISATION_REGISTRY,
-)
+from .config import AGENCIES, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR, DEFAULT_TIMEZONE
 from .dedupe import dedupe_news_items
 from .excel_exporter import ExportOptions, export_news
 from .models import NewsItem, ParliamentBriefing, RunStatus
-from .organisations import (
-    ORGANISATION_REGISTRY_VERSION,
-    TRANSITIONAL_SOURCES,
-    apply_organisation_metadata,
-    audit_content_api_publishers,
-    audit_organisation_state,
-)
 from .profiles import (
     DEFAULT_PROFILE_ID,
     PARLIAMENT_SOURCE_ID,
@@ -39,8 +26,8 @@ from .run_summary import (
     write_run_summary,
 )
 from .runtime_lock import exclusive_lock
-from .relevance import apply_profile_filter_collections, assess_relevance
 from .scrapers.ministry.orchestration import fetch_all_with_status
+from .scrapers.ministry.registry import apply_parliament_topic_filter, apply_topic_filter
 from .scrapers.parliament import ParliamentFetchResult, fetch_parliament_briefings
 
 
@@ -149,12 +136,10 @@ def execute_run(
             fetched_items,
             retry_source_ids,
         )
-        boolean_candidates = [
-            item
-            for item in all_items
-            if assess_relevance(item.title, item.summary, active_profile).included
-        ]
-        content_api_changes = audit_content_api_publishers(boolean_candidates)
+
+        _emit(progress, "filter_news", "正在套用主題與關鍵詞設定", 2, 5)
+        filtered_items = apply_topic_filter(all_items, active_profile)
+        _check_cancelled(cancelled)
 
         if include_parliament:
             _emit(progress, "fetch_parliament", "正在抓取 UK Parliament 研究資料", 3, 5)
@@ -173,15 +158,10 @@ def execute_run(
             retry_source_ids,
             include_parliament,
         )
-        _emit(progress, "filter_news", "正在執行 Boolean 與 BM25 混合式篩選", 2, 5)
-        apply_organisation_metadata(all_items)
-        filtered_items, filtered_parliament_items = apply_profile_filter_collections(
-            all_items,
+        filtered_parliament_items = apply_parliament_topic_filter(
             parliament_items,
             active_profile,
-            ORGANISATION_REGISTRY.topics_by_source,
         )
-        apply_organisation_metadata(filtered_items)
 
         _check_cancelled(cancelled)
         _emit(progress, "export", "正在翻譯並建立 Excel", 4, 5)
@@ -206,23 +186,6 @@ def execute_run(
             status, warnings = evaluate_source_health(source_health)
         else:
             status, warnings = evaluate_run_status(fetch_result, parliament_result)
-        organisation_audit_status, registry_changes = audit_organisation_state(
-            all_items,
-            source_health,
-        )
-        organisation_changes = tuple(sorted({*content_api_changes, *registry_changes}))
-        module_errors = ORGANISATION_REGISTRY.errors
-        if module_errors:
-            organisation_changes = tuple(
-                sorted({*organisation_changes, *(f"module_error:{error}" for error in module_errors)})
-            )
-        if organisation_changes:
-            organisation_audit_status = "degraded"
-        if organisation_audit_status == "degraded":
-            status = RunStatus.DEGRADED
-            warnings.extend(
-                f"organisation_change_detected:{change}" for change in organisation_changes
-            )
         data_fingerprint = make_data_fingerprint(all_items, parliament_items)
         delivery_id = make_delivery_id(run_id, status, data_fingerprint)
         summary = RunSummary(
@@ -247,14 +210,6 @@ def execute_run(
             selected_sources=active_profile.selected_sources,
             minimum_score=active_profile.minimum_score,
             excel_date_calendar=request.export_options.calendar_mode.value,
-            filter_method=active_profile.ranking_method,
-            organisation_registry_version=ORGANISATION_REGISTRY_VERSION,
-            organisation_changes=organisation_changes,
-            transitional_sources=TRANSITIONAL_SOURCES,
-            organisation_audit_status=organisation_audit_status,
-            organisation_modules=ORGANISATION_REGISTRY.module_summaries,
-            organisation_module_errors=module_errors,
-            organisation_registry_hash=ORGANISATION_REGISTRY.registry_hash,
         )
         summary_path = write_run_summary(summary, path)
         _emit(progress, "done", "抓取與 Excel 匯出完成", 5, 5)

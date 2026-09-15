@@ -44,7 +44,7 @@ def get_text(url: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str:
         response = get_session().get(url, timeout=timeout, headers=_headers())
     except requests.RequestException as exc:
         raise DownloadError(f"download failed: {url}") from exc
-    if response.status_code == 403:
+    if response.status_code == 403 and _looks_like_cloudflare_challenge(response.text):
         return _get_text_with_browser_tls(url, timeout)
     try:
         response.raise_for_status()

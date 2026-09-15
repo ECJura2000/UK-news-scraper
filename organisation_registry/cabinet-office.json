@@ -1,8 +1,0 @@
-{
-  "schema_version": 1, "module_version": "1.0.0", "canonical_id": "Cabinet Office",
-  "names": {"zh": "英國內閣辦公室", "en": "Cabinet Office", "short": "Cabinet Office", "publisher_aliases": []},
-  "sources": {"homepage": "https://www.gov.uk/government/organisations/cabinet-office", "feeds": ["https://www.gov.uk/government/organisations/cabinet-office.atom"], "news_pages": [], "official_pages": ["https://www.gov.uk/government/organisations/cabinet-office"], "adapter": "govuk_atom", "fallbacks": []},
-  "filter": {"topics": ["AI", "網路安全/資安"], "include_path_patterns": ["/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"], "exclude_title_patterns": []},
-  "health": {"critical": true, "minimum_items": 1, "maximum_age_days": 14},
-  "history": {"effective_from": "1916-12-01", "predecessors": [], "successors": [], "transitional_sources": []}, "responsibility_by_topic": {}
-}

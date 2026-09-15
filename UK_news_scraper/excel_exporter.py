@@ -5,14 +5,12 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
-from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .calendar_utils import CalendarMode, excel_number_format
-from .config import DEFAULT_TIMEOUT_SECONDS
 from .dedupe import dedupe_news_items, normalize_title
 from .models import NewsItem, ParliamentBriefing
 from .profiles import (
@@ -21,7 +19,6 @@ from .profiles import (
     default_profile,
     profile_hash,
 )
-from .organisations import ORGANISATION_REGISTRY_VERSION
 from .translation_cache import load_translations, save_translations
 
 
@@ -34,12 +31,6 @@ MATCH_HEADERS = HEADERS + (
     "核心關聯詞",
     "一般關聯詞",
     "輔助關聯詞",
-    "Boolean 分數",
-    "BM25 分數",
-    "主題門檻",
-    "命中同義詞",
-    "實際發布機關",
-    "改組後責任機關",
 )
 PARLIAMENT_HEADERS = (
     "資料日期",
@@ -65,12 +56,6 @@ PARLIAMENT_MATCH_HEADERS = PARLIAMENT_HEADERS + (
     "核心關聯詞",
     "一般關聯詞",
     "輔助關聯詞",
-    "Boolean 分數",
-    "BM25 分數",
-    "主題門檻",
-    "命中同義詞",
-    "實際發布機關",
-    "改組後責任機關",
 )
 TITLE_COLUMN = 6
 RELEVANCE_FILLS = {
@@ -85,7 +70,6 @@ STRENGTH_FILLS = {
     KeywordStrength.SUPPORTING.value: PatternFill("solid", fgColor="FFF1B8"),
 }
 DEFAULT_TRANSLATION_CONCURRENCY = 4
-TRANSLATION_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 MANUAL_TITLE_TRANSLATIONS = {
     "Building more resilient CNI: what industry pen testers told us": "打造更具韌性的關鍵國家基礎設施：產業滲透測試人員的回饋",
     "Cyber Shield: The path to an agentic AI future for cyber defence": "Cyber Shield：邁向具代理式 AI 的網路防禦未來",
@@ -143,7 +127,6 @@ def export_news(
         title_translations,
         parliament_translations,
         options.calendar_mode,
-        profile,
     )
 
     ws_parliament = wb.create_sheet("國會研究資料")
@@ -183,7 +166,6 @@ def _write_parliament_sheet(
     translations: dict[str, str],
     include_matches: bool = False,
     calendar_mode: CalendarMode = CalendarMode.GREGORIAN,
-    profile: FilterProfile | None = None,
 ) -> None:
     ws.append(PARLIAMENT_MATCH_HEADERS if include_matches else PARLIAMENT_HEADERS)
     for item in sorted(items, key=lambda briefing: (briefing.published_at, briefing.publisher), reverse=True):
@@ -214,12 +196,6 @@ def _write_parliament_sheet(
                     "、".join(item.core_matched_keywords),
                     "、".join(item.general_matched_keywords),
                     "、".join(item.supporting_matched_keywords),
-                    item.boolean_score,
-                    item.bm25_score,
-                    _topic_thresholds(item, profile),
-                    "、".join(item.matched_synonyms),
-                    item.publisher_organisation,
-                    item.responsibility_owner,
                 ]
             )
         ws.append(row)
@@ -239,7 +215,7 @@ def _write_parliament_sheet(
             ws.cell(english_row_number, 10).fill = summary_fill
         if include_matches and item.matched_keywords:
             relevance_fill = _relevance_fill(item.relevance_level)
-            for column in (*range(15, 19), *range(22, 28)):
+            for column in (15, 16, 17, 18):
                 ws.cell(english_row_number, column).fill = relevance_fill
             for column, strength in (
                 (19, KeywordStrength.CORE),
@@ -251,7 +227,7 @@ def _write_parliament_sheet(
 
         merged_columns = [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14]
         if include_matches:
-            merged_columns.extend(range(15, 28))
+            merged_columns.extend((15, 16, 17, 18, 19, 20, 21))
         for column in merged_columns:
             ws.merge_cells(
                 start_row=english_row_number,
@@ -273,7 +249,7 @@ def _style_parliament_sheet(ws) -> None:
         cell.font = Font(bold=True)
         cell.fill = fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
-    widths = (14, 16, 18, 18, 20, 46, 36, 20, 56, 80, 18, 72, 72, 72, 28, 60, 12, 10, 14, 14, 42, 36, 42, 36, 36, 36, 36)
+    widths = (14, 16, 18, 18, 20, 46, 36, 20, 56, 80, 18, 72, 72, 72, 28, 60, 12, 10, 36, 36, 36)
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
     for row in ws.iter_rows(min_row=2):
@@ -293,7 +269,6 @@ def _write_filtered_sheet(
     title_translations: dict[str, str],
     parliament_translations: dict[str, str],
     calendar_mode: CalendarMode,
-    profile: FilterProfile,
 ) -> None:
     ws.append(["新聞稿"])
     _style_section_row(ws, ws.max_row)
@@ -303,7 +278,6 @@ def _write_filtered_sheet(
         include_matches=True,
         title_translations=title_translations,
         calendar_mode=calendar_mode,
-        profile=profile,
     )
     ws.append([])
     ws.append(["研究"])
@@ -314,7 +288,6 @@ def _write_filtered_sheet(
         parliament_translations,
         include_matches=True,
         calendar_mode=calendar_mode,
-        profile=profile,
     )
 
 
@@ -330,7 +303,7 @@ def _style_filtered_sheet(ws) -> None:
             cell.font = Font(bold=True)
             cell.fill = PatternFill("solid", fgColor="D9EAF7")
             cell.alignment = Alignment(horizontal="center", vertical="center")
-    widths = (14, 38, 18, 24, 16, 80, 72, 36, 60, 12, 10, 36, 36, 36, 14, 14, 42, 36, 42, 42, 36, 36, 36, 36, 36, 36, 36)
+    widths = (14, 38, 18, 24, 16, 80, 72, 36, 60, 12, 10, 36, 36, 36, 72, 28, 60, 12, 10, 36, 36, 36, 36)
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
     for row in ws.iter_rows(min_row=3):
@@ -351,7 +324,6 @@ def _write_sheet(
     include_matches: bool,
     title_translations: dict[str, str],
     calendar_mode: CalendarMode = CalendarMode.GREGORIAN,
-    profile: FilterProfile | None = None,
 ) -> None:
     ws.append(MATCH_HEADERS if include_matches else HEADERS)
     export_items = _dedupe_for_export(items)
@@ -379,12 +351,6 @@ def _write_sheet(
                     "、".join(item.core_matched_keywords),
                     "、".join(item.general_matched_keywords),
                     "、".join(item.supporting_matched_keywords),
-                    item.boolean_score,
-                    item.bm25_score,
-                    _topic_thresholds(item, profile),
-                    "、".join(item.matched_synonyms),
-                    item.publisher_organisation,
-                    item.responsibility_owner,
                 ]
             )
         ws.append(row)
@@ -401,7 +367,7 @@ def _write_sheet(
             ws.cell(chinese_row_number, TITLE_COLUMN).fill = title_fill
         if include_matches and item.matched_keywords:
             relevance_fill = _relevance_fill(item.relevance_level)
-            for column in (*range(8, 12), *range(15, 21)):
+            for column in (8, 9, 10, 11):
                 ws.cell(english_row_number, column).fill = relevance_fill
             for column, strength in (
                 (12, KeywordStrength.CORE),
@@ -451,18 +417,13 @@ def _write_settings_sheet(
         ("設定檔版本", profile.version),
         ("設定檔雜湊", profile_hash(profile)),
         ("最低納入分數", profile.minimum_score),
-        ("排序方法", profile.ranking_method),
-        ("BM25 k1", profile.bm25_k1),
-        ("BM25 b", profile.bm25_b),
-        ("標題權重", profile.title_weight),
-        ("機關 registry 版本", ORGANISATION_REGISTRY_VERSION),
         ("Excel 日期紀年", calendar_mode.value),
         ("選用來源", "、".join(profile.selected_sources)),
     )
     for row in rows:
         ws.append(row)
     ws.append([])
-    ws.append(["主題", "關鍵詞", "同義詞", "強度", "標題分數", "摘要分數", "BM25 門檻"])
+    ws.append(["主題", "關鍵詞", "強度", "標題分數", "摘要分數"])
     weights = {
         KeywordStrength.CORE: (6, 4),
         KeywordStrength.GENERAL: (4, 3),
@@ -471,42 +432,23 @@ def _write_settings_sheet(
     for topic in profile.topics:
         for keyword in topic.keywords:
             title_score, summary_score = weights[keyword.strength]
-            ws.append([
-                topic.name,
-                keyword.phrase,
-                "、".join(keyword.synonyms),
-                keyword.strength.label,
-                title_score,
-                summary_score,
-                topic.minimum_bm25_score,
-            ])
-            ws.cell(ws.max_row, 4).fill = STRENGTH_FILLS[keyword.strength.value]
+            ws.append([topic.name, keyword.phrase, keyword.strength.label, title_score, summary_score])
+            ws.cell(ws.max_row, 3).fill = STRENGTH_FILLS[keyword.strength.value]
     ws.sheet_properties.tabColor = "E6A817"
 
 
 def _style_settings_sheet(ws) -> None:
-    header_rows = [1] + [row[0].row for row in ws.iter_rows() if row[0].value == "主題"]
-    for row_number in header_rows:
+    for row_number in (1, 10):
         for cell in ws[row_number]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="14213D")
             cell.alignment = Alignment(horizontal="center", vertical="center")
-    for index, width in enumerate((28, 72, 60, 16, 14, 14, 14), start=1):
+    for index, width in enumerate((28, 72, 16, 14, 14), start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
     for row in ws.iter_rows():
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
-    ws.freeze_panes = f"A{header_rows[-1] + 1}"
-
-
-def _topic_thresholds(item, profile: FilterProfile | None) -> str:
-    active_profile = profile or default_profile()
-    thresholds = {topic.name: topic.minimum_bm25_score for topic in active_profile.topics}
-    return "、".join(
-        f"{topic}:{thresholds[topic]:.1f}"
-        for topic in item.matched_topics
-        if topic in thresholds
-    )
+    ws.freeze_panes = "A11"
 
 
 def _translate_titles(items: list[NewsItem]) -> dict[str, str]:
@@ -570,14 +512,7 @@ async def _translate_titles_async(
             translated_title = ""
             async with semaphore:
                 try:
-                    translated = await asyncio.wait_for(
-                        translator.translate(title, src="en", dest="zh-tw"),
-                        timeout=TRANSLATION_TIMEOUT_SECONDS,
-                    )
-                except asyncio.TimeoutError:
-                    print(
-                        f"[warn] googletrans {content_label}翻譯逾時，改用 deep-translator：{title}"
-                    )
+                    translated = await translator.translate(title, src="en", dest="zh-tw")
                 except Exception as exc:
                     print(f"[warn] googletrans {content_label}翻譯失敗，改用 deep-translator：{title} ({exc})")
                 else:
@@ -634,18 +569,7 @@ def _translate_with_deep_translator(title: str) -> str:
         return ""
 
     try:
-        from deep_translator import google as deep_google
-        original_get = deep_google.requests.get
-
-        def _timeout_get(*args, **kwargs):
-            kwargs.setdefault("timeout", TRANSLATION_TIMEOUT_SECONDS)
-            return original_get(*args, **kwargs)
-
-        # deep-translator does not pass a timeout into requests.get, so patch its
-        # module-local requests handle to avoid indefinite hangs on slow or blocked
-        # translation endpoints.
-        with patch.object(deep_google.requests, "get", side_effect=_timeout_get):
-            translated_title = GoogleTranslator(source="en", target="zh-TW").translate(title)
+        translated_title = GoogleTranslator(source="en", target="zh-TW").translate(title)
     except Exception as exc:
         print(f"[warn] deep-translator 標題翻譯失敗：{title} ({exc})")
         return ""
@@ -718,7 +642,7 @@ def _fill_rows(ws, start_row: int, end_row: int, fill: PatternFill) -> None:
 
 def _merged_columns(include_matches: bool) -> tuple[int, ...]:
     if include_matches:
-        return (1, 2, 3, 4, 5, 7, *range(8, 21))
+        return (1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14)
     return (1, 2, 3, 4, 5, 7)
 
 

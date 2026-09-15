@@ -1,7 +1,4 @@
-import asyncio
 from datetime import datetime, timezone
-import sys
-from types import ModuleType, SimpleNamespace
 
 from openpyxl import load_workbook
 
@@ -9,7 +6,6 @@ from UK_news_scraper.calendar_utils import CalendarMode
 from UK_news_scraper.excel_exporter import (
     ExportOptions,
     _ensure_translations_present,
-    _translate_titles_async,
     _translate_texts,
     _translate_with_deep_translator,
     export_news,
@@ -129,63 +125,6 @@ def test_cached_untranslated_title_is_repaired(monkeypatch):
     assert result[title] == "Cyber Shield：邁向具代理式 AI 的網路防禦未來"
 
 
-def test_googletrans_timeout_falls_back_to_manual_translation(monkeypatch):
-    class HangingTranslator:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        async def translate(self, title, src, dest):
-            await asyncio.Event().wait()
-
-    monkeypatch.setattr("UK_news_scraper.excel_exporter.TRANSLATION_TIMEOUT_SECONDS", 0.01)
-
-    result = asyncio.run(
-        _translate_titles_async(
-            ["Cyber Shield: The path to an agentic AI future for cyber defence"],
-            HangingTranslator,
-            "新聞標題",
-        )
-    )
-
-    assert (
-        result["Cyber Shield: The path to an agentic AI future for cyber defence"]
-        == "Cyber Shield：邁向具代理式 AI 的網路防禦未來"
-    )
-
-
-def test_deep_translator_requests_use_configured_timeout(monkeypatch):
-    observed_timeouts = []
-
-    def fake_get(url, **kwargs):
-        observed_timeouts.append(kwargs.get("timeout"))
-        return SimpleNamespace()
-
-    google_module = ModuleType("deep_translator.google")
-    google_module.requests = SimpleNamespace(get=fake_get)
-
-    deep_translator_module = ModuleType("deep_translator")
-
-    class FakeGoogleTranslator:
-        def __init__(self, source, target):
-            assert (source, target) == ("en", "zh-TW")
-
-        def translate(self, title):
-            google_module.requests.get("https://translate.example.test")
-            return "已翻譯標題"
-
-    deep_translator_module.GoogleTranslator = FakeGoogleTranslator
-    deep_translator_module.google = google_module
-    monkeypatch.setitem(sys.modules, "deep_translator", deep_translator_module)
-    monkeypatch.setitem(sys.modules, "deep_translator.google", google_module)
-    monkeypatch.setattr("UK_news_scraper.excel_exporter.TRANSLATION_TIMEOUT_SECONDS", 7)
-
-    assert _translate_with_deep_translator("A title without a manual translation") == "已翻譯標題"
-    assert observed_timeouts == [7]
-
-
 def test_export_uses_roc_number_format_and_strength_columns(tmp_path, monkeypatch):
     monkeypatch.setattr("UK_news_scraper.excel_exporter._translate_texts", lambda texts, content_label: {})
     monkeypatch.setattr("UK_news_scraper.excel_exporter._ensure_translations_present", lambda *args: None)
@@ -219,4 +158,4 @@ def test_export_uses_roc_number_format_and_strength_columns(tmp_path, monkeypatc
     assert "x-roc" in all_sheet["C2"].number_format
     assert filtered_sheet["L3"].value == "artificial intelligence"
     assert filtered_sheet["L3"].fill.fgColor.rgb == "00E6A817"
-    assert workbook["篩選設定"]["B12"].value == "roc"
+    assert workbook["篩選設定"]["B7"].value == "roc"

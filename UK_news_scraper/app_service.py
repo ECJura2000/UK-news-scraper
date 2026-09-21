@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
+from concurrent.futures import ThreadPoolExecutor
 
 from .calendar_utils import CalendarMode, output_filename
 from .config import AGENCIES, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR, DEFAULT_TIMEZONE
@@ -124,11 +125,25 @@ def execute_run(
     with exclusive_lock(lock_path):
         action = "重新抓取異常來源" if retry_source_ids else "抓取已選取的 UK 新聞來源"
         _emit(progress, "fetch_news", f"正在{action}", 1, 5)
-        fetch_result = fetch_all_with_status(
-            since,
-            max_workers=request.workers,
-            agencies=selected_agencies,
-        )
+        # Agency and Parliament sources are independent I/O.  Starting both at
+        # once removes the serial wait that previously dominated a weekly run.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            agency_future = executor.submit(
+                fetch_all_with_status,
+                since,
+                max_workers=request.workers,
+                agencies=selected_agencies,
+            )
+            parliament_future = (
+                executor.submit(fetch_parliament_briefings, since)
+                if include_parliament
+                else None
+            )
+            fetch_result = agency_future.result()
+            parliament_result = parliament_future.result() if parliament_future else ParliamentFetchResult(
+                items=[],
+                source_mode="未選取",
+            )
         _check_cancelled(cancelled)
         fetched_items = _filter_until(fetch_result.items, until)
         all_items = _merge_news_items(
@@ -143,13 +158,8 @@ def execute_run(
 
         if include_parliament:
             _emit(progress, "fetch_parliament", "正在抓取 UK Parliament 研究資料", 3, 5)
-            parliament_result = fetch_parliament_briefings(since)
             fetched_parliament_items = _filter_until(parliament_result.items, until)
         else:
-            parliament_result = ParliamentFetchResult(
-                items=[],
-                source_mode="未選取",
-            )
             fetched_parliament_items = []
         _check_cancelled(cancelled)
         parliament_items = _merge_parliament_items(

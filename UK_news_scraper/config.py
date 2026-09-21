@@ -8,9 +8,11 @@ from .models import Agency, TopicRule
 
 
 DEFAULT_DAYS_BACK = 14
-DEFAULT_TIMEOUT_SECONDS = 20
-DEFAULT_MAX_WORKERS = 6
-DEFAULT_RETRY_TOTAL = 2
+# The weekly automation has a one-minute collection-and-export SLO.  Individual
+# sources are isolated, so a slow upstream must not hold the whole report open.
+DEFAULT_TIMEOUT_SECONDS = 8
+DEFAULT_MAX_WORKERS = 8
+DEFAULT_RETRY_TOTAL = 0
 
 
 def _default_output_dir() -> Path:

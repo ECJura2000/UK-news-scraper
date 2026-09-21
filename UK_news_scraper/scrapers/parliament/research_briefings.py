@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import html
@@ -125,34 +126,41 @@ def fetch_parliament_briefings(
         print("[info] UK Parliament Research Briefings：使用官方 RSS（API 健康檢查已停用）")
 
     items: list[ParliamentBriefing] = []
-    for publisher, feed_url in RSS_SOURCES.items():
-        started_at = monotonic()
-        try:
-            feed_items = _fetch_rss(publisher, feed_url, since)
-        except Exception as exc:
-            warning = f"{publisher} RSS 讀取失敗：{exc}"
-            warnings.append(warning)
-            failed_sources.append(f"{publisher} RSS")
+    # Each official feed is independent.  Fetching them serially adds their
+    # network waits together, while parallel reads preserve the same records.
+    with ThreadPoolExecutor(max_workers=len(RSS_SOURCES)) as executor:
+        futures = {
+            publisher: (executor.submit(_fetch_rss, publisher, feed_url, since), monotonic())
+            for publisher, feed_url in RSS_SOURCES.items()
+        }
+        for publisher, feed_url in RSS_SOURCES.items():
+            future, started_at = futures[publisher]
+            try:
+                feed_items = future.result()
+            except Exception as exc:
+                warning = f"{publisher} RSS 讀取失敗：{exc}"
+                warnings.append(warning)
+                failed_sources.append(f"{publisher} RSS")
+                source_health.append(
+                    _source_health(f"{publisher} RSS", True, False, [], monotonic() - started_at, warning, since=since)
+                )
+                print(f"[warn] {warning}")
+                continue
+            print(f"[info] {publisher} RSS：{len(feed_items)} 筆")
+            successful_sources.append(f"{publisher} RSS")
             source_health.append(
-                _source_health(f"{publisher} RSS", True, False, [], monotonic() - started_at, warning, since=since)
+                _source_health(
+                    f"{publisher} RSS",
+                    True,
+                    True,
+                    feed_items,
+                    monotonic() - started_at,
+                    minimum=1,
+                    since=since,
+                    maximum_age_days=14,
+                )
             )
-            print(f"[warn] {warning}")
-            continue
-        print(f"[info] {publisher} RSS：{len(feed_items)} 筆")
-        successful_sources.append(f"{publisher} RSS")
-        source_health.append(
-            _source_health(
-                f"{publisher} RSS",
-                True,
-                True,
-                feed_items,
-                monotonic() - started_at,
-                minimum=1,
-                since=since,
-                maximum_age_days=14,
-            )
-        )
-        items.extend(feed_items)
+            items.extend(feed_items)
     _extend_with_topic_archives(
         items, since, warnings, successful_sources, failed_sources, source_health
     )
@@ -174,30 +182,39 @@ def _extend_with_topic_archives(
     failed_sources: list[str],
     source_health: list[SourceHealth],
 ) -> None:
-    for label, archive_url, chamber, publisher in TOPIC_ARCHIVE_SOURCES:
-        started_at = monotonic()
-        try:
-            topic_items = _fetch_topic_archive(
-                since,
-                archive_url=archive_url,
-                chamber=chamber,
-                publisher=publisher,
+    with ThreadPoolExecutor(max_workers=len(TOPIC_ARCHIVE_SOURCES)) as executor:
+        futures = {
+            label: (
+                executor.submit(
+                    _fetch_topic_archive,
+                    since,
+                    archive_url=archive_url,
+                    chamber=chamber,
+                    publisher=publisher,
+                ),
+                monotonic(),
             )
-        except Exception as exc:
-            warning = f"{label} 主題頁讀取失敗：{exc}"
-            warnings.append(warning)
-            failed_sources.append(f"{label} topic archive")
+            for label, archive_url, chamber, publisher in TOPIC_ARCHIVE_SOURCES
+        }
+        for label, archive_url, chamber, publisher in TOPIC_ARCHIVE_SOURCES:
+            future, started_at = futures[label]
+            try:
+                topic_items = future.result()
+            except Exception as exc:
+                warning = f"{label} 主題頁讀取失敗：{exc}"
+                warnings.append(warning)
+                failed_sources.append(f"{label} topic archive")
+                source_health.append(
+                    _source_health(f"{label} topic archive", False, False, [], monotonic() - started_at, warning, since=since)
+                )
+                print(f"[warn] {warning}")
+                continue
+            print(f"[info] {label} 主題頁：{len(topic_items)} 筆")
+            successful_sources.append(f"{label} topic archive")
             source_health.append(
-                _source_health(f"{label} topic archive", False, False, [], monotonic() - started_at, warning, since=since)
+                _source_health(f"{label} topic archive", False, True, topic_items, monotonic() - started_at, since=since)
             )
-            print(f"[warn] {warning}")
-            continue
-        print(f"[info] {label} 主題頁：{len(topic_items)} 筆")
-        successful_sources.append(f"{label} topic archive")
-        source_health.append(
-            _source_health(f"{label} topic archive", False, True, topic_items, monotonic() - started_at, since=since)
-        )
-        items.extend(topic_items)
+            items.extend(topic_items)
 
 
 def _fetch_api(since: datetime, page_size: int, max_pages: int) -> list[ParliamentBriefing]:

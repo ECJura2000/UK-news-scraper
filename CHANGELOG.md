@@ -5,6 +5,7 @@
 - Ran agency and Parliament collection concurrently, including independent Parliament RSS and topic-archive sources.
 - Added bounded source and translation waits so a slow upstream preserves a degraded report instead of blocking the weekly delivery.
 - Increased the default source worker pool and reduced the retry pause for the weekly performance target.
+- Updated AnyIO and Soup Sieve to patched releases required by the dependency audit.
 
 ## 2.1.0 - 2026-09-14
 

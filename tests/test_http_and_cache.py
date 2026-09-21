@@ -2,6 +2,7 @@ import json
 import asyncio
 from types import SimpleNamespace
 
+from UK_news_scraper import excel_exporter
 from UK_news_scraper.excel_exporter import _translate_titles_async
 from UK_news_scraper.http.async_client import get_session
 from UK_news_scraper.translation_cache import load_translations, save_translations
@@ -51,3 +52,25 @@ def test_googletrans_translation_uses_bounded_concurrency(monkeypatch):
 
     assert len(translated) == 5
     assert 1 < maximum_active <= 3
+
+
+def test_translation_deadline_preserves_english_when_provider_is_slow(monkeypatch):
+    class SlowTranslator:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def translate(self, text, **_):
+            await asyncio.sleep(0.05)
+            return SimpleNamespace(text=f"中譯 {text}")
+
+    monkeypatch.setattr(excel_exporter, "DEFAULT_TRANSLATION_REQUEST_TIMEOUT_SECONDS", 0.005)
+    monkeypatch.setattr(excel_exporter, "DEFAULT_TRANSLATION_BUDGET_SECONDS", 0.01)
+
+    translated = asyncio.run(
+        _translate_titles_async(["one", "two"], SlowTranslator, "test")
+    )
+
+    assert translated == {"one": "", "two": ""}

@@ -9,7 +9,7 @@ from .registry import build_scrapers, dedupe_items
 from .status import AgencyFetchStatus, FetchAllResult, health_warning, newest_published_at
 
 
-RETRY_DELAY_SECONDS = 2
+RETRY_DELAY_SECONDS = 1
 
 
 def fetch_all_with_status(

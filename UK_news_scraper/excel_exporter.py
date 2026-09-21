@@ -70,6 +70,8 @@ STRENGTH_FILLS = {
     KeywordStrength.SUPPORTING.value: PatternFill("solid", fgColor="FFF1B8"),
 }
 DEFAULT_TRANSLATION_CONCURRENCY = 4
+DEFAULT_TRANSLATION_REQUEST_TIMEOUT_SECONDS = 3
+DEFAULT_TRANSLATION_BUDGET_SECONDS = 12
 MANUAL_TITLE_TRANSLATIONS = {
     "Building more resilient CNI: what industry pen testers told us": "打造更具韌性的關鍵國家基礎設施：產業滲透測試人員的回饋",
     "Cyber Shield: The path to an agentic AI future for cyber defence": "Cyber Shield：邁向具代理式 AI 的網路防禦未來",
@@ -494,8 +496,12 @@ def _translate_uncached_texts(unique_titles: list[str], content_label: str) -> d
     try:
         from googletrans import Translator
     except ImportError:
-        print(f"[warn] 尚未安裝 googletrans，將改用 deep-translator 作為{content_label}翻譯備援。")
-        return _translate_titles_with_deep_translator(unique_titles)
+        print(f"[warn] 尚未安裝 googletrans，將保留英文{content_label}以維持執行時限。")
+        return {
+            title: translation
+            for title in unique_titles
+            if (translation := _translation_or_fallback(title, ""))
+        }
 
     return asyncio.run(_translate_titles_async(unique_titles, Translator, content_label))
 
@@ -506,15 +512,23 @@ async def _translate_titles_async(
     content_label: str,
 ) -> dict[str, str]:
     semaphore = asyncio.Semaphore(_translation_concurrency())
+    deadline = asyncio.get_running_loop().time() + DEFAULT_TRANSLATION_BUDGET_SECONDS
 
     async with translator_class() as translator:
         async def translate_one(title: str) -> tuple[str, str]:
             translated_title = ""
             async with semaphore:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    print(f"[warn] {content_label}翻譯已達 {DEFAULT_TRANSLATION_BUDGET_SECONDS} 秒時限，保留英文：{title}")
+                    return title, translated_title
                 try:
-                    translated = await translator.translate(title, src="en", dest="zh-tw")
+                    translated = await asyncio.wait_for(
+                        translator.translate(title, src="en", dest="zh-tw"),
+                        timeout=min(DEFAULT_TRANSLATION_REQUEST_TIMEOUT_SECONDS, remaining),
+                    )
                 except Exception as exc:
-                    print(f"[warn] googletrans {content_label}翻譯失敗，改用 deep-translator：{title} ({exc})")
+                    print(f"[warn] googletrans {content_label}翻譯失敗，保留英文：{title} ({exc})")
                 else:
                     translated_title = translated.text
             return title, translated_title
@@ -545,7 +559,6 @@ def _translation_or_fallback(title: str, translated_title: str) -> str:
         return translated_title
     return (
         MANUAL_TITLE_TRANSLATIONS.get(title.strip(), "")
-        or _translate_with_deep_translator(title)
         or _translate_election_statement_title(title)
         or translated_title
     )

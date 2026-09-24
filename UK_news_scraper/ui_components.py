@@ -3,12 +3,12 @@ from __future__ import annotations
 import calendar
 from datetime import date
 import os
-import sys
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
 from .calendar_utils import CalendarMode, gregorian_to_roc
+from .font_policy import CHINESE_FONT, ENGLISH_FONT
 
 
 COLORS = {
@@ -43,11 +43,11 @@ def enable_high_dpi() -> None:
 
 
 def font_family() -> str:
-    if sys.platform == "darwin":
-        return "PingFang TC"
-    if os.name == "nt":
-        return "Microsoft JhengHei UI"
-    return "Noto Sans CJK TC"
+    return CHINESE_FONT
+
+
+def english_font_family() -> str:
+    return ENGLISH_FONT
 
 
 def configure_relevance_tags(text_widget, colors: dict[str, str] = COLORS) -> None:

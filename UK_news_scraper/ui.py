@@ -45,6 +45,7 @@ from .ui_components import (
     configure_relevance_tags,
     enable_high_dpi,
     font_family,
+    english_font_family,
 )
 from .ui_state import (
     ResultFilters,
@@ -133,8 +134,8 @@ class UKNewsApp(tk.Tk):
         brand.pack(fill="x")
         brand.create_oval(22, 24, 58, 60, fill=COLORS["core"], outline="")
         brand.create_line(31, 43, 49, 43, fill=COLORS["ink"], width=3)
-        brand.create_text(22, 78, anchor="w", text="UK NEWS", fill="white", font=(font_family(), 16, "bold"))
-        brand.create_text(22, 102, anchor="w", text="RESEARCH DESK", fill="#C9D0DA", font=(font_family(), 9))
+        brand.create_text(22, 78, anchor="w", text="UK NEWS", fill="white", font=(english_font_family(), 16, "bold"))
+        brand.create_text(22, 102, anchor="w", text="RESEARCH DESK", fill="#C9D0DA", font=(english_font_family(), 9))
         for page, label in (
             ("run", "執行抓取"),
             ("profiles", "主題設定"),

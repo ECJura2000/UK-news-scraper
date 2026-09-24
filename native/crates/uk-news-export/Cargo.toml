@@ -15,3 +15,4 @@ uk-news-core = { path = "../uk-news-core" }
 [dev-dependencies]
 calamine = "0.30"
 tempfile = "3.23"
+zip = { version = "4.6", default-features = false, features = ["deflate"] }

@@ -1,16 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import { openPath, openUrl } from '@tauri-apps/plugin-opener';
 import { defaultPeriod } from './period';
+import { parseProfileJson, type Profile } from './profileImport';
+import { buildRunRequest, workerChoices } from './runRequest';
 import './style.css';
 import './extras.css';
 
 type Agency = { short_name: string; name_zh: string; name_en: string; topics: string[] };
-type Keyword = { phrase: string; strength: string };
-type Profile = { profile_id: string; name: string; description: string; version: number; selected_sources: string[]; topics: { name: string; keywords: Keyword[] }[]; minimum_score: number };
 type ProfileReport = { profiles: Profile[]; warning: string; recovery_path: string | null };
 type SourceHealth = { source: string; critical: boolean; success: boolean; item_count: number; duration_seconds: number; warning: string };
 type Summary = { run_id: string; status: string; period_start: string; period_end: string; output_file: string; profile_id: string; minimum_score: number; all_news_count: number; filtered_news_count: number; parliament_count: number; filtered_parliament_count: number; source_health: SourceHealth[]; warnings: string[] };
@@ -23,6 +23,7 @@ type RunProgress = { kind: string; completed: number; total: number; source: str
 const outputDirectory = (path: string) => { const value = path.replace(/[\\/][^\\/]+$/, ''); return value === path ? '.' : value };
 
 function App() {
+  const profileImportRef = useRef<HTMLInputElement>(null);
   const initial = defaultPeriod(new Date());
   const [sources, setSources] = useState<Agency[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -34,6 +35,7 @@ function App() {
   const [customOutput, setCustomOutput] = useState(false);
   const [calendar, setCalendar] = useState('gregorian');
   const [minimumScore, setMinimumScore] = useState(3);
+  const [workers, setWorkers] = useState(6);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [history, setHistory] = useState<Summary[]>([]);
@@ -68,11 +70,12 @@ function App() {
   const resultSources = useMemo(() => [...new Set(result ? [...result.news.map(item => item.unit_category ?? ''), ...result.parliament.map(item => item.publisher)] : [])].filter(Boolean).sort(), [result]);
 
   async function choose() { const path = await save({ filters: [{ name: 'Excel', extensions: ['xlsx'] }], defaultPath: output }); if (path) { setCustomOutput(true); setOutput(path) } }
-  function request(overrides?: Partial<{ since: string; until: string; output: string }>) { return { since: overrides?.since ?? since, until: overrides?.until ?? until, output: overrides?.output ?? output, workers: 6, profilePath: profile?.profile_id ?? null, calendar, selectedSources: [...selected], minimumScore, profile: profile ? { ...profile, selected_sources: [...selected], minimum_score: minimumScore } : null } }
+  function request(overrides?: Partial<{ since: string; until: string; output: string }>) { return buildRunRequest({ since: overrides?.since ?? since, until: overrides?.until ?? until, output: overrides?.output ?? output, workers, profile, calendar, selectedSources: [...selected], minimumScore }) }
   async function run() { if (until < since) { setError('結束日期不得早於開始日期'); return } setRunning(true); setError(''); setResult(null); setProgress(null); try { setResult(await invoke<Result>('run_scraper', { request: request() })) } catch (reason) { setError(String(reason)) } finally { setRunning(false) } }
   async function retry(summary: Summary, summaryPath?: string) { setRunning(true); setError(''); try { const path = summaryPath ?? summary.output_file.replace(/\.xlsx$/i, '.run.json'); setResult(await invoke<Result>('retry_failed', { request: { run: request({ since: summary.period_start, until: summary.period_end, output: summary.output_file }), summaryPath: path } })) } catch (reason) { setError(String(reason)) } finally { setRunning(false) } }
   async function cancel() { if (await invoke<boolean>('cancel_run')) setError('執行已取消') }
   async function saveAsProfile() { if (!profile) return; const id = window.prompt('新設定檔 ID（小寫英數與連字號）', `${profile.profile_id}-copy`); if (!id) return; const name = window.prompt('設定檔名稱', `${profile.name} 副本`); if (!name) return; try { await invoke('save_profile', { profile: { ...profile, profile_id: id, name, selected_sources: [...selected], minimum_score: minimumScore } }); await refreshProfiles(id) } catch (reason) { setError(String(reason)) } }
+  async function importProfile(event: React.ChangeEvent<HTMLInputElement>) { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (!file) return; try { const imported = parseProfileJson(await file.text()); if (profiles.some(item => item.profile_id === imported.profile_id) && !window.confirm(`覆寫設定檔「${imported.name}」？`)) return; await invoke('save_profile', { profile: imported }); await refreshProfiles(imported.profile_id); setError('') } catch (reason) { setError(String(reason)) } }
   async function removeProfile() { if (!profile || profile.profile_id === 'uk-tech-law' || !window.confirm(`刪除設定檔「${profile.name}」？`)) return; try { await invoke('delete_profile', { profileId: profile.profile_id }); await refreshProfiles() } catch (reason) { setError(String(reason)) } }
   function updateKeywords(topicIndex: number, strength: string, value: string) { if (!profile) return; const phrases = value.split(/[,，\n]/).map(item => item.trim()).filter(Boolean); setProfile({ ...profile, topics: profile.topics.map((topic, index) => index === topicIndex ? { ...topic, keywords: [...topic.keywords.filter(item => item.strength !== strength), ...phrases.map(phrase => ({ phrase, strength }))] } : topic) }) }
 
@@ -81,10 +84,11 @@ function App() {
     <section className="grid">
       <div className="panel"><h2>執行設定</h2>
         <label>主題設定檔<select value={profile?.profile_id ?? ''} onChange={event => { const value = profiles.find(item => item.profile_id === event.target.value); if (value) selectProfile(value) }}>{profiles.map(item => <option key={item.profile_id} value={item.profile_id}>{item.name}</option>)}</select></label>
-        <div className="profile-actions"><button onClick={saveAsProfile}>另存設定檔</button><button disabled={profile?.profile_id === 'uk-tech-law'} onClick={removeProfile}>刪除</button></div>
+        <div className="profile-actions"><button onClick={saveAsProfile}>另存設定檔</button><button onClick={() => profileImportRef.current?.click()}>匯入 JSON</button><input ref={profileImportRef} type="file" accept=".json,application/json" hidden onChange={importProfile} /><button onClick={() => openUrl('https://github.com/ECJura2000/UK-news-scraper/releases/latest/download/UKNewsScraper-Topic-Profile-Example.json')}>下載範例 JSON</button><button disabled={profile?.profile_id === 'uk-tech-law'} onClick={removeProfile}>刪除</button></div>
         <div className="date-presets" role="group" aria-label="常用查詢期間">{[7, 14, 30].map(days => <button type="button" key={days} disabled={running} onClick={() => { const period = defaultPeriod(new Date(), days); setSince(period.since); setUntil(period.until) }}>最近 {days} 天</button>)}</div>
         <div className="dates"><label>開始日期<input type="date" value={since} onChange={event => setSince(event.target.value)} /></label><label>結束日期<input type="date" value={until} onChange={event => setUntil(event.target.value)} /></label></div>
         <label>最低相關性分數<input type="number" min="1" max="99" value={minimumScore} onChange={event => setMinimumScore(Number(event.target.value))} /></label>
+        <label>機關來源併發數<select value={workers} disabled={running} onChange={event => setWorkers(Number(event.target.value))}>{workerChoices.map(count => <option key={count} value={count}>{count} 個來源</option>)}</select></label>
         <label>Excel 日期<select value={calendar} onChange={event => setCalendar(event.target.value)}><option value="gregorian">西元</option><option value="roc">民國</option></select></label>
         <label>輸出檔<div className="file"><input value={output} onChange={event => { setCustomOutput(true); setOutput(event.target.value) }} /><button onClick={choose}>選擇</button></div></label>
         {running ? <button className="run cancel" onClick={cancel}>取消執行</button> : <button className="run" disabled={!output || selected.size === 0 || until < since} onClick={run}>開始執行</button>}{error && <pre className="error">{error}</pre>}

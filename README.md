@@ -79,7 +79,21 @@ v2.2 使用 Rust 抓取與匯出核心，以及 Tauri 2 + React/TypeScript 桌�
 桌面安裝包可直接啟動介面；可攜版仍支援命令列與 `--ui`。Python 版保留作為
 備援，不需要安裝 Python 才能使用原生桌面版。介面提供 7／14／30 天與
 自訂日期、設定檔、逐來源健康、異常來源重試、結果篩選與命中原因，以及
-歷史紀錄與開啟 Excel。
+歷史紀錄與開啟 Excel。執行設定可選擇 1 至 16 個機關來源併發抓取數，
+預設為 6；這個選項也會套用於「重試異常來源」。
+
+需要新增搜尋主題時，下載並複製[範例主題設定檔](examples/uk-topic-profile.example.json)，
+修改 `profile_id`、`name`、`topics`、關鍵詞強度及既有 `selected_sources`。
+桌面版按「匯入 JSON」選取單一主題設定檔，通過驗證後會保存在本機並自動選用；
+「下載範例 JSON」會開啟最新版 Release 的範例檔。若匯入相同 ID，介面會先詢問
+是否覆寫。JSON 只能調整既有官方來源的選擇與篩選規則，不能新增抓取網站。
+每週排程仍使用內建 `uk-tech-law`，不會因桌面版匯入而自動更改。
+
+命令列也可直接讀取單一主題 JSON，不需要先匯入桌面版：
+
+```bash
+target/release/UKNewsScraper --profile /absolute/path/uk-topic-profile.example.json
+```
 
 ```bash
 cd native/apps/desktop

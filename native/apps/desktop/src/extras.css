@@ -2,7 +2,7 @@
 .result-actions,
 .history article,
 .history article div { display: flex; gap: 8px; }
-.profile-actions { margin: -7px 0 16px; }
+.profile-actions { margin: -7px 0 16px; flex-wrap: wrap; }
 .profile-actions button,
 .history button { border: 1px solid #cbd7df; border-radius: 8px; padding: 8px 11px; background: #f7fafb; cursor: pointer; }
 .profile-actions button:disabled { opacity: .45; }

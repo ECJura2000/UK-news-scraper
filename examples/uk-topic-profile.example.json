@@ -1,0 +1,33 @@
+{
+  "profile_id": "uk-public-sector-ai-example",
+  "name": "公共部門 AI 範例",
+  "description": "從既有英國官方來源篩選公共部門 AI 與治理政策，可複製後修改主題和關鍵詞。",
+  "version": 1,
+  "selected_sources": [
+    "BIST",
+    "AISI",
+    "ICO",
+    "GDS",
+    "Cabinet Office",
+    "UK Parliament"
+  ],
+  "topics": [
+    {
+      "name": "公共部門 AI",
+      "keywords": [
+        { "phrase": "public sector AI", "strength": "core" },
+        { "phrase": "government use of AI", "strength": "core" },
+        { "phrase": "AI adoption", "strength": "general" }
+      ]
+    },
+    {
+      "name": "AI 治理與安全",
+      "keywords": [
+        { "phrase": "AI assurance", "strength": "core" },
+        { "phrase": "algorithmic accountability", "strength": "core" },
+        { "phrase": "evaluation", "strength": "supporting" }
+      ]
+    }
+  ],
+  "minimum_score": 3
+}

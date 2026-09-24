@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.1 - 2026-09-24
+
+- Added an editable JSON topic-profile example to the release and a desktop import action that saves custom topics locally.
+- Added a desktop source-worker selector from 1 to 16, used for normal collection and failed-source retry.
+
+## 2.2.0 - 2026-09-23
+
+- Promoted the Rust/Tauri desktop build with date presets, progress and source-health views, result filters, history, and workbook opening.
+- Aligned Python and Rust relevance rules around the UK policy review examples while preserving report and delivery contracts.
+
 ## 2.1.1 - 2026-09-21
 
 - Ran agency and Parliament collection concurrently, including independent Parliament RSS and topic-archive sources.

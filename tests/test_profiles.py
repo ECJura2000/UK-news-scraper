@@ -1,5 +1,6 @@
 from dataclasses import replace
 import json
+from pathlib import Path
 
 import pytest
 
@@ -135,3 +136,12 @@ def test_save_keeps_backup_and_restore_removes_custom_profiles(tmp_path):
 
     assert set(restored) == {"uk-tech-law"}
     assert json.loads(destination.read_text(encoding="utf-8"))["profiles"] == []
+
+
+def test_downloadable_topic_example_is_a_valid_profile():
+    path = Path(__file__).resolve().parents[1] / "examples" / "uk-topic-profile.example.json"
+    profile = profile_from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    assert profile.profile_id == "uk-public-sector-ai-example"
+    assert len(profile.topics) == 2
+    assert "UK Parliament" in profile.selected_sources

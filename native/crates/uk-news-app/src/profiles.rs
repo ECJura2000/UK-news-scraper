@@ -663,4 +663,13 @@ mod tests {
             KeywordStrength::General
         );
     }
+
+    #[test]
+    fn downloadable_topic_example_is_a_valid_native_profile() {
+        let raw = include_str!("../../../../examples/uk-topic-profile.example.json");
+        let profile: FilterProfile = serde_json::from_str(raw).unwrap();
+        validate_profile(&profile).unwrap();
+        assert_eq!(profile.profile_id, "uk-public-sector-ai-example");
+        assert_eq!(profile.topics.len(), 2);
+    }
 }

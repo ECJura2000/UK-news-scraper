@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import pytest
 
 from UK_news_scraper.models import NewsItem
 from UK_news_scraper.profiles import (
@@ -17,6 +18,45 @@ def _item(title: str, summary: str = "", link: str = "https://example.com") -> N
 
 def test_broad_keyword_alone_is_not_relevant():
     assert apply_topic_filter([_item("Technology award announced")]) == []
+
+
+@pytest.mark.parametrize(
+    ("title", "summary", "expected_topic"),
+    [
+        ("Shaping Tomorrow: The UK's Digital Standards Strategy 2026 to 2030", "", "數位治理/標準/公共部門"),
+        ("Final storage and access technologies guidance published", "", "資料治理/隱私/數位身份"),
+        ("Company Guidance | Secure Innovation", "", "網路安全/資安"),
+        ("Government procurement to prioritise national security", "", "數位治理/標準/公共部門"),
+        ("A new framework was published", "Public sector AI procurement rules and risk management.", "數位治理/標準/公共部門"),
+        ("AI Hardware Plan", "", "AI"),
+        ("App stores agree to fairer terms", "", "數位平台"),
+    ],
+)
+def test_curated_policy_cases_are_recalled(title, summary, expected_topic):
+    assessment = assess_relevance(title, summary)
+    assert assessment.included
+    assert expected_topic in assessment.topics
+    assert assessment.keywords
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Technology award announced",
+        "Procurement team appointment announced",
+        "Cat Little Appointed as New Permanent Secretary, Department for Business, Innovation, Science and Trade",
+        "Cookie recipe competition opens",
+        "Transparency data: IPO government procurement card spending 2026",
+    ],
+)
+def test_broad_or_administrative_titles_are_not_enough(title):
+    assert not assess_relevance(title, "").included
+
+
+def test_organisation_homepage_is_not_an_initial_selection():
+    item = _item("Department for Business, Innovation, Science and Trade", "Science and technology policy")
+    item.link = "https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade"
+    assert apply_topic_filter([item]) == []
 
 
 def test_specific_title_keyword_is_relevant_and_explainable():

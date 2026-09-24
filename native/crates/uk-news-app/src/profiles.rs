@@ -12,7 +12,7 @@ use uk_news_core::{
     FilterProfile, KeywordDefinition, KeywordStrength, ProfileTopic, PROFILE_SCHEMA_VERSION,
 };
 
-const SUPPORTING: [&str; 7] = [
+const SUPPORTING: [&str; 12] = [
     "copyright",
     "evaluation",
     "innovation",
@@ -20,8 +20,13 @@ const SUPPORTING: [&str; 7] = [
     "resilience",
     "supply chain",
     "technology",
+    "cookies",
+    "national security",
+    "procurement",
+    "interoperability",
+    "government procurement",
 ];
-const TOPICS: [(&str, &[&str]); 6] = [
+const TOPICS: [(&str, &[&str]); 7] = [
     (
         "Science & Technology",
         &[
@@ -62,6 +67,13 @@ const TOPICS: [(&str, &[&str]); 6] = [
             "TDM",
             "privacy-by-design",
             "AI and data protection",
+            "AI risk management",
+            "AI assurance",
+            "AI adoption",
+            "AI infrastructure",
+            "AI hardware",
+            "AI Research Resource",
+            "compute roadmap",
         ],
     ),
     (
@@ -87,6 +99,9 @@ const TOPICS: [(&str, &[&str]); 6] = [
             "GOV.UK One Login",
             "One Login",
             "UK Digital Identity and Attributes Trust Framework",
+            "storage and access technologies",
+            "tracking technologies",
+            "cookies",
         ],
     ),
     (
@@ -119,6 +134,12 @@ const TOPICS: [(&str, &[&str]); 6] = [
             "Strategic Market Status",
             "SMS",
             "systemic risk",
+            "app store",
+            "app stores",
+            "mobile ecosystem",
+            "search services",
+            "cyberflashing",
+            "fraudulent advertising",
         ],
     ),
     (
@@ -148,6 +169,27 @@ const TOPICS: [(&str, &[&str]); 6] = [
             "hybrid threat resilience",
             "critical infrastructure protection",
             "national cyber resilience",
+            "secure innovation",
+            "connected device security",
+            "software security code of practice",
+            "cyber resilience pledge",
+        ],
+    ),
+    (
+        "數位治理/標準/公共部門",
+        &[
+            "digital standards strategy",
+            "digital standards",
+            "technology standards",
+            "AI standards",
+            "standards hub",
+            "government procurement",
+            "public sector AI",
+            "digital trade governance",
+            "communications market report",
+            "national security",
+            "procurement",
+            "interoperability",
         ],
     ),
     (
@@ -528,11 +570,59 @@ fn canonical_json(v: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uk_news_core::{assess_news, NewsItem};
+
+    fn candidate(title: &str, summary: &str) -> NewsItem {
+        serde_json::from_value(serde_json::json!({
+            "agency": "Example", "agency_en": "Example", "unit_category": "BIST",
+            "title": title, "link": "https://www.gov.uk/government/news/example",
+            "published_at": "2026-09-14T00:00:00Z", "summary": summary
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn curated_policy_cases_match_python_selection() {
+        let profile = default_profile();
+        for (title, summary) in [
+            (
+                "Shaping Tomorrow: The UK's Digital Standards Strategy 2026 to 2030",
+                "",
+            ),
+            (
+                "Final storage and access technologies guidance published",
+                "",
+            ),
+            ("Company Guidance | Secure Innovation", ""),
+            ("Government procurement to prioritise national security", ""),
+            (
+                "A new framework was published",
+                "Public sector AI procurement rules and risk management.",
+            ),
+            ("AI Hardware Plan", ""),
+            ("App stores agree to fairer terms", ""),
+        ] {
+            let mut item = candidate(title, summary);
+            assert!(assess_news(&mut item, &profile), "{title}");
+            assert!(!item.matched_keywords.is_empty(), "{title}");
+        }
+        for title in [
+            "Technology award announced",
+            "Procurement team appointment announced",
+            "Cat Little Appointed as New Permanent Secretary, Department for Business, Innovation, Science and Trade",
+            "Cookie recipe competition opens",
+            "Transparency data: IPO government procurement card spending 2026",
+        ] {
+            let mut item = candidate(title, "");
+            assert!(!assess_news(&mut item, &profile), "{title}");
+        }
+    }
+
     #[test]
     fn default_profile_hash_matches_python_contract() {
         assert_eq!(
             profile_hash(&default_profile()),
-            "a7423bfa69974665ddc9ac8565063929cdd43fbec350152ad1a32756aaa84bd5"
+            "088e7d5d8e4149453713828b983a09246db74e181306d526c22d95540e07f5b2"
         );
     }
 

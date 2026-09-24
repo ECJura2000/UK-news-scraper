@@ -5,7 +5,7 @@ use futures::stream::{self, StreamExt};
 use regex::Regex;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use std::{collections::HashSet, time::Instant};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 use uk_news_core::{Agency, ContentType, NewsItem, ParliamentBriefing, SourceHealth};
 
 pub struct FetchResult<T> {
@@ -14,15 +14,27 @@ pub struct FetchResult<T> {
     pub warnings: Vec<String>,
 }
 
+pub type SourceProgress = Arc<dyn Fn(&SourceHealth) + Send + Sync>;
+
 pub async fn fetch_agencies(
     since: DateTime<Utc>,
     until: DateTime<Utc>,
     workers: usize,
     selected: &[String],
 ) -> FetchResult<NewsItem> {
+    fetch_agencies_with_progress(since, until, workers, selected, None).await
+}
+
+pub async fn fetch_agencies_with_progress(
+    since: DateTime<Utc>,
+    until: DateTime<Utc>,
+    workers: usize,
+    selected: &[String],
+    progress: Option<SourceProgress>,
+) -> FetchResult<NewsItem> {
     let client = reqwest::Client::builder()
         .user_agent("UK-news-observation-scraper/2.0")
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(8))
         .build()
         .unwrap();
     let targets = agencies()
@@ -32,6 +44,7 @@ pub async fn fetch_agencies(
     let results = stream::iter(targets)
         .map(|agency| {
             let client = client.clone();
+            let progress = progress.clone();
             async move {
                 let started = Instant::now();
                 let mut items = vec![];
@@ -120,6 +133,9 @@ pub async fn fetch_agencies(
                     newest_published_at: newest,
                     warning: warning.clone(),
                 };
+                if let Some(progress) = progress {
+                    progress(&health);
+                }
                 (items, health, warnings)
             }
         })
@@ -291,8 +307,11 @@ async fn google_news_fallback(
     let queries: &[&str] = match agency.short_name.as_str() {
         "Ofcom" => &[
             "site:ofcom.org.uk Ofcom",
-            "site:ofcom.org.uk Ofcom report",
-            "site:ofcom.org.uk Ofcom consultation",
+            "site:ofcom.org.uk \"Ofcom statement\"",
+            "site:ofcom.org.uk \"Ofcom consultation\"",
+            "site:ofcom.org.uk \"Ofcom update\"",
+            "site:ofcom.org.uk \"Ofcom news\"",
+            "site:ofcom.org.uk \"Ofcom report\"",
         ],
         "NPSA" => &["site:npsa.gov.uk NPSA"],
         "Electoral Commission" => &["site:electoralcommission.org.uk Electoral Commission"],
@@ -304,20 +323,25 @@ async fn google_news_fallback(
         Regex::new(r"(?i)\s+-\s+National Protective Security Authority(?:\s+\|\s+NPSA)?$").unwrap();
     let electoral_suffix = Regex::new(r"(?i)\s+-\s+Electoral Commission$").unwrap();
     for query in queries {
+        let encoded = query
+            .as_bytes()
+            .iter()
+            .map(|byte| match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (*byte as char).to_string()
+                }
+                _ => format!("%{byte:02X}"),
+            })
+            .collect::<String>();
+        let source =
+            format!("https://news.google.com/rss/search?q={encoded}&hl=en-GB&gl=GB&ceid=GB:en");
         let response = client
-            .get("https://news.google.com/rss/search")
-            .query(&[
-                ("q", *query),
-                ("hl", "en-GB"),
-                ("gl", "GB"),
-                ("ceid", "GB:en"),
-            ])
+            .get(&source)
             .send()
             .await
             .map_err(|e| e.to_string())?
             .error_for_status()
             .map_err(|e| e.to_string())?;
-        let source = response.url().to_string();
         let bytes = response.bytes().await.map_err(|e| e.to_string())?;
         let feed = parser::parse(bytes.as_ref()).map_err(|e| e.to_string())?;
         for entry in feed.entries {
@@ -327,13 +351,33 @@ async fn google_news_fallback(
             if published < since || published >= until {
                 continue;
             }
-            let mut title = entry.title.map(|x| x.content).unwrap_or_default();
+            let mut title = entry
+                .title
+                .map(|x| crate::parse::clean_text(&x.content))
+                .unwrap_or_default();
             if agency.short_name == "Ofcom" {
+                if !title.contains("www.ofcom.org.uk") {
+                    continue;
+                }
                 title = ofcom_suffix.replace(&title, "").trim().into();
             } else if agency.short_name == "NPSA" {
                 title = npsa_suffix.replace(&title, "").trim().into();
             } else {
                 title = electoral_suffix.replace(&title, "").trim().into();
+                let normalized = title.to_lowercase();
+                if ["search criteria", "donation summary", "loan summary"]
+                    .iter()
+                    .any(|prefix| normalized.starts_with(prefix))
+                    || [
+                        "home page | electoral commission",
+                        "qualifications",
+                        "living abroad",
+                        "resources for media",
+                    ]
+                    .contains(&normalized.as_str())
+                {
+                    continue;
+                }
             }
             if title.len() < 12 {
                 continue;
@@ -355,7 +399,7 @@ async fn google_news_fallback(
                 published_at: published,
                 summary: entry
                     .summary
-                    .map(|x| strip_html(&x.content))
+                    .map(|x| crate::parse::clean_text(&x.content))
                     .unwrap_or_default(),
                 source_feed: source.clone(),
                 matched_topics: vec![],
@@ -410,7 +454,7 @@ pub async fn fetch_parliament(
 ) -> FetchResult<ParliamentBriefing> {
     let client = reqwest::Client::builder()
         .user_agent("UK-news-observation-scraper/2.0")
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(8))
         .build()
         .unwrap();
     let feeds = [
@@ -528,7 +572,10 @@ pub async fn fetch_parliament(
                 if published < since || published >= until {
                     continue;
                 }
-                let title = entry.title.map(|x| x.content).unwrap_or_default();
+                let title = entry
+                    .title
+                    .map(|x| crate::parse::clean_text(&x.content))
+                    .unwrap_or_default();
                 let webpage_url = entry
                     .links
                     .first()
@@ -541,9 +588,14 @@ pub async fn fetch_parliament(
                     .summary
                     .map(|x| strip_html(&x.content))
                     .unwrap_or_default();
+                let content = entry
+                    .content
+                    .as_ref()
+                    .and_then(|value| value.body.as_deref())
+                    .unwrap_or_default();
                 let combined = format!("{} {} {}", title, webpage_url, summary);
                 let identifier = identifier(&combined);
-                let pdf_url = pdf_url(&combined, &identifier);
+                let pdf_url = pdf_url(content, &identifier);
                 let topics = entry.categories.into_iter().map(|x| x.term).collect();
                 source_items.push(ParliamentBriefing {
                     published_at: published,
@@ -645,14 +697,7 @@ pub async fn fetch_parliament(
 }
 
 fn strip_html(text: &str) -> String {
-    let doc = Html::parse_fragment(text);
-    doc.root_element()
-        .text()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    crate::parse::clean_text(text)
 }
 fn identifier(text: &str) -> String {
     Regex::new(r"(?i)\b(?:CBP|SN|LLN|POST-PN|POSTNOTE|POSTBRIEF)-?\d+\b")
@@ -662,11 +707,16 @@ fn identifier(text: &str) -> String {
         .unwrap_or_default()
 }
 fn pdf_url(text: &str, id: &str) -> String {
-    if let Some(m) = Regex::new(r#"(?i)https?://[^\s\"'<>]+\.pdf(?:\?[^\s\"'<>]*)?"#)
+    if id.is_empty() {
+        return String::new();
+    }
+    for found in Regex::new(r#"(?i)https?://[^\s\"'<>]+\.pdf(?:\?[^\s\"'<>]*)?"#)
         .unwrap()
-        .find(text)
+        .find_iter(text)
     {
-        return m.as_str().into();
+        if found.as_str().to_lowercase().contains(&id.to_lowercase()) {
+            return found.as_str().into();
+        }
     }
     if id.starts_with("CBP-") || id.starts_with("SN-") {
         format!("https://researchbriefings.files.parliament.uk/documents/{id}/{id}.pdf")

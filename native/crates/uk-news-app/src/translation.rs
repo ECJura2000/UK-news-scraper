@@ -7,6 +7,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use tokio::time::{timeout, Duration, Instant};
 
 #[async_trait]
 pub trait TranslationProvider: Send + Sync {
@@ -84,25 +85,38 @@ impl<P: TranslationProvider> TranslationService<P> {
             .into_iter()
             .filter(|text| !cache.contains_key(text))
             .collect::<Vec<_>>();
-        let results = stream::iter(pending)
+        let mut results = stream::iter(pending.iter().cloned())
             .map(|text| async move {
-                let result = self.provider.translate(&text).await;
+                let result = timeout(Duration::from_secs(3), self.provider.translate(&text)).await;
                 (text, result)
             })
-            .buffer_unordered(self.concurrency.max(1))
-            .collect::<Vec<_>>()
-            .await;
-        for (text, result) in results {
+            .buffer_unordered(self.concurrency.max(1));
+        let deadline = Instant::now() + Duration::from_secs(12);
+        while let Ok(Some((text, result))) = tokio::time::timeout_at(deadline, results.next()).await
+        {
             match result {
-                Ok(v) => {
+                Ok(Ok(v)) => {
                     cache.insert(text, v);
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     warnings.push(format!("翻譯失敗，保留英文：{e}"));
+                    cache.insert(text.clone(), text);
+                }
+                Err(_) => {
+                    warnings.push("翻譯逾時，保留英文".into());
                     cache.insert(text.clone(), text);
                 }
             }
         }
+        drop(results);
+        for text in pending {
+            if !cache.contains_key(&text) {
+                warnings.push("翻譯總時限已達，保留英文".into());
+                cache.insert(text.clone(), text);
+            }
+        }
+        warnings.sort();
+        warnings.dedup();
         if let Err(e) = save_cache(&self.cache_path, &cache) {
             warnings.push(format!("翻譯快取寫入失敗：{e}"))
         }

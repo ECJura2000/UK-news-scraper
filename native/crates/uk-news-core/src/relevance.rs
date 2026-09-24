@@ -232,6 +232,8 @@ pub fn assess_news(item: &mut NewsItem, profile: &FilterProfile) -> bool {
         item.supporting_matched_keywords.clone(),
     ]
     .concat();
+    item.matched_keywords
+        .sort_by_cached_key(|word| word.to_lowercase());
     item.title_matched_keywords = ts.keys().cloned().collect();
     item.summary_matched_keywords = ss.keys().cloned().collect();
     item.title_keyword_strengths = ts;
@@ -249,7 +251,8 @@ pub fn assess_parliament(item: &mut ParliamentBriefing, profile: &FilterProfile)
         supporting,
         score,
         level,
-        ..
+        title_strengths: ts,
+        summary_strengths: ss,
     } = score_text(&item.title, &item.summary, profile);
     item.matched_topics = topics;
     item.core_matched_keywords = core;
@@ -261,6 +264,10 @@ pub fn assess_parliament(item: &mut ParliamentBriefing, profile: &FilterProfile)
         item.supporting_matched_keywords.clone(),
     ]
     .concat();
+    item.matched_keywords
+        .sort_by_cached_key(|word| word.to_lowercase());
+    item.title_matched_keywords = ts.keys().cloned().collect();
+    item.summary_matched_keywords = ss.keys().cloned().collect();
     item.relevance_score = score;
     item.relevance_level = level;
     score >= profile.minimum_score

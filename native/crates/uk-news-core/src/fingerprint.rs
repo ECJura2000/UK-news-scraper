@@ -58,8 +58,12 @@ pub fn make_data_fingerprint(news: &[NewsItem], parliament: &[ParliamentBriefing
 }
 
 pub fn make_delivery_id(run_id: &str, status: RunStatus, fingerprint: &str) -> String {
+    let status_token = match status {
+        RunStatus::Complete => "RunStatus.COMPLETE",
+        RunStatus::Degraded => "RunStatus.DEGRADED",
+    };
     format!(
-        "{run_id}:{status}:{}",
+        "{run_id}:{status_token}:{}",
         &fingerprint[..fingerprint.len().min(16)]
     )
 }
@@ -74,6 +78,18 @@ mod tests {
         assert_eq!(
             make_data_fingerprint(&[], &[]),
             "7fcbce660bdd3e4b306806808acef08a29aff531510e7be12e779be9495bc26c"
+        );
+    }
+
+    #[test]
+    fn delivery_id_matches_existing_python_runtime() {
+        assert_eq!(
+            make_delivery_id(
+                "uk-news-2026-09-08_2026-09-22",
+                RunStatus::Degraded,
+                "0123456789abcdefxyz"
+            ),
+            "uk-news-2026-09-08_2026-09-22:RunStatus.DEGRADED:0123456789abcdef"
         );
     }
 

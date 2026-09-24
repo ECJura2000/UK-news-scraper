@@ -14,8 +14,8 @@ flowchart LR
     H --> I[Delivery registry]
 ```
 
-The v2 preview implements the pipeline as a Rust workspace. Python remains the production
-fallback during parallel validation. Both implementations preserve the same Excel,
+The v2.2 desktop release implements the pipeline as a Rust workspace. Python remains the
+production fallback. Both implementations preserve the same Excel,
 fingerprint v3, run-summary, profile, and delivery-registry contracts.
 
 ## Module Responsibilities

@@ -30,6 +30,13 @@ jobs:
           cache-dependency-path: |
             requirement-lock.txt
             requirement-dev.txt
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: native/apps/desktop/package-lock.json
+      - name: Install Linux Tauri dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Install validation dependencies
         run: |
           python -m pip install --upgrade pip
@@ -43,8 +50,13 @@ jobs:
           fi
           python -m ruff check .
           python -m compileall -q UK_news_scraper run_scraper.py scripts/package_release.py scripts/package_source.py scripts/check_release_size.py
+          python -m UK_news_scraper --check-runtime
           python -m pytest -q
-          cargo test --locked -p uk-news-core -p uk-news-sources -p uk-news-export -p uk-news-app
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Validate desktop frontend
+        working-directory: native/apps/desktop
+        run: npm ci && npm test && npm run build
 
   build:
     needs: validate
@@ -79,7 +91,7 @@ jobs:
           python-version: "3.13"
       - name: Install Linux Tauri dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Build React frontend
         working-directory: native/apps/desktop
         run: npm ci && npm run build
@@ -147,11 +159,58 @@ jobs:
           --max-file-mib 35
           --max-total-mib 35
           --manifest dist/release/${{ matrix.artifact }}-SIZE-MANIFEST.txt
+      - name: Build desktop installer on target operating system
+        shell: bash
+        working-directory: native/apps/desktop
+        run: |
+          case "$RUNNER_OS" in
+            Linux) npm exec tauri build -- --features desktop-default --bundles deb --ci ;;
+            macOS) npm exec tauri build -- --features desktop-default --bundles app --ci --no-sign ;;
+            Windows) npm exec tauri build -- --features desktop-default --bundles nsis --ci ;;
+          esac
+      - name: Smoke-test desktop executable
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            target/release/UKNewsScraper.exe --check-runtime > dist/smoke-desktop.txt
+          else
+            target/release/UKNewsScraper --check-runtime > dist/smoke-desktop.txt
+          fi
+          test -s dist/smoke-desktop.txt
+      - name: Stage desktop installer
+        shell: bash
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          bundle_root="target/release/bundle"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            app="$(find "$bundle_root/macos" -maxdepth 1 -name '*.app' -type d -print -quit)"
+            test -n "$app"
+            ditto -c -k --sequesterRsrc --keepParent "$app" "dist/release/UKNewsScraper-${version}-macOS-Desktop.zip"
+            test -s "dist/release/UKNewsScraper-${version}-macOS-Desktop.zip"
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then
+            installer="$(find "$bundle_root/nsis" -maxdepth 1 -name '*.exe' -type f -print -quit)"
+            test -n "$installer"
+            cp "$installer" "dist/release/UKNewsScraper-${version}-Windows-Setup.exe"
+          else
+            deb="$(find "$bundle_root/deb" -maxdepth 1 -name '*.deb' -type f -print -quit)"
+            test -n "$deb"
+            cp "$deb" "dist/release/UKNewsScraper-${version}-Linux-x86_64.deb"
+          fi
+      - name: Enforce desktop installer size budget
+        shell: bash
+        run: >-
+          python scripts/check_release_size.py
+          dist/release
+          --max-file-mib 35
+          --max-total-mib 140
+          --manifest dist/release/${{ matrix.artifact }}-SIZE-MANIFEST.txt
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: |
             dist/release/*.zip
+            dist/release/*.deb
+            dist/release/*-Setup.exe
             dist/release/*-SIZE-MANIFEST.txt
           if-no-files-found: error
           retention-days: 1
@@ -191,14 +250,16 @@ jobs:
       - name: Verify release assets
         run: |
           find release-assets -maxdepth 1 -type f -print
-          test "$(find release-assets -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 4
+          test "$(find release-assets -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 5
           test "$(find release-assets -maxdepth 1 -name '*-Source.zip' -type f | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -name '*.deb' -type f | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -name '*-Setup.exe' -type f | wc -l)" -eq 1
       - name: Create consolidated checksum and enforce release size budget
         shell: bash
         run: |
           cd release-assets
-          sha256sum *.zip > UKNewsScraper-${{ steps.release.outputs.tag }}-SHA256SUMS.txt
-          rm -f *-SIZE-MANIFEST.txt
+          sha256sum ./*.zip ./*.deb ./*-Setup.exe > UKNewsScraper-${{ steps.release.outputs.tag }}-SHA256SUMS.txt
+          rm -f ./*-SIZE-MANIFEST.txt
           cd ..
           python scripts/check_release_size.py release-assets \
             --max-file-mib 35 \
@@ -224,6 +285,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             "${tag_args[@]}" \
             --generate-notes \
-            --prerelease \
             --title "UK News Scraper $RELEASE_TAG" \
-            --notes "此版本提供 Windows、macOS 與 Linux x86_64 可攜版及 Source ZIP，不再提供 protected 版本。所有下載檔均納入 SHA-256 清單，平台成品受 35 MiB 容量閘門保護。"
+            --notes "此版本提供 Windows、macOS 與 Linux x86_64 可攜版、桌面安裝包及 Source ZIP。所有下載檔均納入 SHA-256 清單，單一成品受 35 MiB 容量閘門保護。"

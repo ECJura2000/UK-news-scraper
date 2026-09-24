@@ -1,5 +1,20 @@
 # Deployment And Maintenance
 
+## Weekly Runtime And Fallback
+
+Run the verified `UKNewsScraper` Rust executable with the built-in `uk-tech-law`
+profile and Gregorian dates. Validate the workbook's four sheets and use the
+same-name `.run.json` as the authority for status, counts, source health,
+`output_file`, and `delivery_id`. A valid `degraded` report remains deliverable.
+
+If Rust has not produced a valid workbook and run summary, and no delivery claim
+has been obtained for that period, run the Python implementation for the same
+dates as a fallback. Never launch the fallback after obtaining a claim or to
+replace a valid `degraded` report. Both implementations use the same delivery ID
+for the same logical data. Before sending, claim the summary's delivery ID and
+proceed only when `claimed=true`; uncertain Gmail transport requires checking
+Sent while retaining the claim.
+
 ## Add Or Repair A Source
 
 1. Update the agency configuration and parser.

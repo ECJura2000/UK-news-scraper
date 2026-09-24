@@ -16,8 +16,10 @@ Deployment, source maintenance, and delivery recovery are documented in [docs/MA
 - [目前開發版原始碼 ZIP](https://github.com/ECJura2000/UK-news-scraper/archive/refs/heads/main.zip)
 - [交給 Codex 或其他 AI 工具執行](AI_START_HERE.md)
 
-正式 Release 會同時提供 Windows、macOS、Linux 可攜版及
-`UKNewsScraper-版本-Source.zip`。若要讓 AI 工具協助安裝、修改或排程，
+正式 Release 會同時提供 Windows 安裝程式、macOS 桌面 App ZIP、Linux
+DEB／AppImage、三平台命令列可攜版及 `UKNewsScraper-版本-Source.zip`。
+macOS 桌面 App 如未經 Apple 簽章，首次啟動須於系統安全性設定允許開啟。
+若要讓 AI 工具協助安裝、修改或排程，
 請下載 Source ZIP；AI 代理進入專案後可直接讀取 [AGENTS.md](AGENTS.md)
 取得測試、輸出與寄信安全規則。
 
@@ -57,7 +59,7 @@ python3 -m UK_news_scraper
 UK_NEWS_OUTPUT_DIR=/absolute/output/path python3 -m UK_news_scraper
 ```
 
-每次執行也會在 Excel 旁產生同名的 `.run.json` 執行摘要，內容包含穩定 `run_id`、邏輯筆數、完整或降級狀態與來源警告。寄信流程應先用 `run_id` 檢查是否已寄送，避免同一期間重複寄信。
+每次執行也會在 Excel 旁產生同名的 `.run.json` 執行摘要，內容包含穩定 `run_id`、`delivery_id`、邏輯筆數、完整或降級狀態與來源警告。寄信流程必須依 `delivery_id` 取得寄送 claim，避免同一報表重複寄信。
 
 翻譯會使用持久快取，未命中內容預設以 4 個有限併發請求翻譯。可用
 `UK_NEWS_TRANSLATION_CONCURRENCY` 調整併發數。
@@ -71,10 +73,13 @@ python3 -m pip install -r requirement.txt
 
 正式建置與 CI 使用固定版本的 `requirement-lock.txt`，更新依賴後應重新驗證並同步該檔案。
 
-## Rust + Tauri 原生預覽版
+## Rust + Tauri 原生桌面版
 
-v2 使用 Rust 抓取與匯出核心，以及 Tauri 2 + React/TypeScript 桌面介面。Python
-v1.2.4 在平行驗證完成前仍是正式版；原生版本不需要 Python runtime。
+v2.2 使用 Rust 抓取與匯出核心，以及 Tauri 2 + React/TypeScript 桌面介面。
+桌面安裝包可直接啟動介面；可攜版仍支援命令列與 `--ui`。Python 版保留作為
+備援，不需要安裝 Python 才能使用原生桌面版。介面提供 7／14／30 天與
+自訂日期、設定檔、逐來源健康、異常來源重試、結果篩選與命中原因，以及
+歷史紀錄與開啟 Excel。
 
 ```bash
 cd native/apps/desktop
@@ -84,11 +89,13 @@ cd ../../..
 cargo build --release --locked -p uk-news-scraper
 target/release/UKNewsScraper --check-runtime
 target/release/UKNewsScraper --ui
+cd native/apps/desktop
+npm exec tauri build -- --features desktop-default --bundles app
 ```
 
 Windows 的執行檔位於 `target\release\UKNewsScraper.exe`。macOS 與 Linux 位於
 `target/release/UKNewsScraper`。各平台必須在目標作業系統建置，portable ZIP
-上限為 35 MiB。v2 只有單一執行檔，不再提供試用期密碼版本。
+上限為 35 MiB。安裝包須在目標作業系統各自建置。
 
 原生寄送 registry 指令如下；過渡期間舊 Python 指令會在找到原生執行檔時轉送：
 
@@ -172,7 +179,7 @@ python3 -m pip install -r requirement-lock.txt -r requirement-dev.txt
 python3 -m pytest -q
 ```
 
-Rust 預覽版升為正式版前，需用相同期間分別執行 Python 與 Rust，並連續三次記錄完全一致的 logical counts 與 fingerprint v3：
+更動來源或篩選規則後，應以相同期間分別執行 Python 與 Rust，連續三次確認邏輯筆數與 fingerprint v3 一致：
 
 ```bash
 python3 scripts/compare_parallel_runs.py \

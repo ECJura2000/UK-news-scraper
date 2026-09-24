@@ -2,12 +2,13 @@ use anyhow::{Context, Result};
 use chrono::{Datelike, Days, NaiveDate, Utc};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
+use tauri::Emitter;
 use tokio::sync::Mutex;
 use uk_news_app::{
-    claim, complete, default_profile, execute, load_profile, release, retry_failed_sources, status,
-    RunOptions,
+    claim, complete, default_profile, execute, execute_with_progress, load_profile, release,
+    retry_failed_sources_with_progress, status, ProgressCallback, RunOptions,
 };
 use uk_news_export::CalendarMode;
 
@@ -113,7 +114,9 @@ fn entry() -> Result<()> {
         return Ok(());
     }
     if cli.ui
-        || std::env::args().len() == 1 && std::env::var_os("UK_NEWS_DESKTOP_DEFAULT").is_some()
+        || std::env::args().len() == 1
+            && (cfg!(feature = "desktop-default")
+                || std::env::var_os("UK_NEWS_DESKTOP_DEFAULT").is_some())
     {
         return launch_ui();
     }
@@ -191,12 +194,7 @@ fn resolve_dates(cli: &Cli) -> Result<(NaiveDate, NaiveDate)> {
             return Ok((parse_date(a)?, parse_date(b)?));
         }
         if let Ok(days) = joined.parse::<u64>() {
-            return Ok((
-                today
-                    .checked_sub_days(Days::new(days.saturating_sub(1)))
-                    .unwrap(),
-                today,
-            ));
+            return Ok((today.checked_sub_days(Days::new(days)).unwrap(), today));
         }
         return Ok((
             parse_date(&joined)?,
@@ -208,12 +206,7 @@ fn resolve_dates(cli: &Cli) -> Result<(NaiveDate, NaiveDate)> {
         ));
     }
     let days = cli.days.unwrap_or(14);
-    Ok((
-        today
-            .checked_sub_days(Days::new(days.saturating_sub(1)))
-            .unwrap(),
-        today,
-    ))
+    Ok((today.checked_sub_days(Days::new(days)).unwrap(), today))
 }
 fn default_output(since: NaiveDate, until: NaiveDate, profile_id: &str) -> PathBuf {
     let dir = std::env::var_os("UK_NEWS_OUTPUT_DIR")
@@ -221,7 +214,7 @@ fn default_output(since: NaiveDate, until: NaiveDate, profile_id: &str) -> PathB
         .unwrap_or_else(|| {
             let development = std::env::current_exe()
                 .ok()
-                .is_some_and(|path| path.components().any(|part| part.as_os_str() == "target"));
+                .is_some_and(|path| is_development_executable(&path));
             if development {
                 std::env::current_dir().unwrap().join("新聞放置區")
             } else {
@@ -245,6 +238,27 @@ fn default_output(since: NaiveDate, until: NaiveDate, profile_id: &str) -> PathB
         until.month(),
         until.day()
     ))
+}
+fn is_development_executable(path: &Path) -> bool {
+    path.parent()
+        .and_then(|parent| parent.parent())
+        .is_some_and(|parent| parent.file_name().is_some_and(|name| name == "target"))
+}
+
+#[cfg(test)]
+mod output_tests {
+    use super::is_development_executable;
+    use std::path::Path;
+
+    #[test]
+    fn bundled_app_uses_desktop_output_directory() {
+        assert!(is_development_executable(Path::new(
+            "target/debug/UKNewsScraper"
+        )));
+        assert!(!is_development_executable(Path::new(
+            "target/release/bundle/macos/UK News Scraper.app/Contents/MacOS/UKNewsScraper"
+        )));
+    }
 }
 fn cache_path() -> PathBuf {
     std::env::var_os("HOME")
@@ -286,6 +300,17 @@ fn source_catalog() -> Vec<uk_news_core::Agency> {
     uk_news_sources::agencies()
 }
 #[tauri::command]
+fn suggested_output(since: String, until: String, profile_id: String) -> Result<String, String> {
+    let since = parse_date(&since).map_err(|e| e.to_string())?;
+    let until = parse_date(&until).map_err(|e| e.to_string())?;
+    if until < since {
+        return Err("結束日期不得早於開始日期".into());
+    }
+    Ok(default_output(since, until, &profile_id)
+        .display()
+        .to_string())
+}
+#[tauri::command]
 fn built_in_profile() -> uk_news_core::FilterProfile {
     default_profile()
 }
@@ -308,14 +333,18 @@ fn delete_profile(profile_id: String) -> Result<bool, String> {
     uk_news_app::delete_profile(&profile_id).map_err(|e| e.to_string())
 }
 #[tauri::command]
-async fn run_scraper(request: UiRunRequest) -> Result<UiRunResult, String> {
-    run_task(request, None).await
+async fn run_scraper(app: tauri::AppHandle, request: UiRunRequest) -> Result<UiRunResult, String> {
+    run_task(app, request, None).await
 }
 #[tauri::command]
-async fn retry_failed(request: UiRetryRequest) -> Result<UiRunResult, String> {
-    run_task(request.run, Some(PathBuf::from(request.summary_path))).await
+async fn retry_failed(
+    app: tauri::AppHandle,
+    request: UiRetryRequest,
+) -> Result<UiRunResult, String> {
+    run_task(app, request.run, Some(PathBuf::from(request.summary_path))).await
 }
 async fn run_task(
+    app: tauri::AppHandle,
     request: UiRunRequest,
     previous_summary: Option<PathBuf>,
 ) -> Result<UiRunResult, String> {
@@ -347,11 +376,15 @@ async fn run_task(
         calendar,
         translation_cache: cache_path(),
     };
+    let progress_app = app.clone();
+    let progress: ProgressCallback = Arc::new(move |event| {
+        let _ = progress_app.emit("scraper-progress", event);
+    });
     let task = tokio::spawn(async move {
         if let Some(summary) = previous_summary {
-            retry_failed_sources(options, &summary).await
+            retry_failed_sources_with_progress(options, &summary, Some(progress)).await
         } else {
-            execute(options).await
+            execute_with_progress(options, Some(progress)).await
         }
     });
     let active = ACTIVE_RUN.get_or_init(|| Mutex::new(None));
@@ -411,6 +444,7 @@ fn launch_ui() -> Result<()> {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             source_catalog,
+            suggested_output,
             built_in_profile,
             list_profiles,
             profile_load_report,

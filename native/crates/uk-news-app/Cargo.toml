@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
+chrono-tz = "0.10"
 fs2.workspace = true
 futures.workspace = true
 reqwest.workspace = true

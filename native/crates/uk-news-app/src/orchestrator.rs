@@ -1,18 +1,54 @@
 use crate::{default_profile, profile_hash, FreeGoogleProvider, TranslationService};
 use anyhow::{Context, Result};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 use uk_news_core::{
     assess_news, assess_parliament, make_data_fingerprint, make_delivery_id, FilterProfile,
     NewsItem, ParliamentBriefing, RunStatus, RunSummary,
 };
 use uk_news_export::{export_news, CalendarMode, ExportOptions};
-use uk_news_sources::{fetch_agencies, fetch_parliament, FetchResult};
+use uk_news_sources::{
+    fetch_agencies_with_progress, fetch_parliament, FetchResult, SourceProgress,
+};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RunProgress {
+    pub kind: &'static str,
+    pub completed: usize,
+    pub total: usize,
+    pub source: String,
+    pub message: String,
+}
+
+pub type ProgressCallback = Arc<dyn Fn(RunProgress) + Send + Sync>;
+
+fn emit(
+    progress: &Option<ProgressCallback>,
+    kind: &'static str,
+    completed: usize,
+    total: usize,
+    source: &str,
+    message: &str,
+) {
+    if let Some(progress) = progress {
+        progress(RunProgress {
+            kind,
+            completed,
+            total,
+            source: source.into(),
+            message: message.into(),
+        });
+    }
+}
 
 pub struct RunOptions {
     pub since: NaiveDate,
@@ -31,25 +67,84 @@ pub struct RunData {
 }
 
 pub async fn execute(options: RunOptions) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    execute_with_progress(options, None).await
+}
+
+pub async fn execute_with_progress(
+    mut options: RunOptions,
+    progress: Option<ProgressCallback>,
+) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    options.output = absolute_output(&options.output)?;
     let (since, until) = utc_range(options.since, options.until);
     let selected = options.profile.selected_sources.clone();
-    let agencies = fetch_agencies(since, until, options.workers, &selected).await;
-    let parliament = if selected.iter().any(|x| x == "UK Parliament") {
-        fetch_parliament(since, until).await
-    } else {
-        FetchResult {
-            items: vec![],
-            health: vec![],
-            warnings: vec![],
+    let has_parliament = selected.iter().any(|x| x == "UK Parliament");
+    let agency_total = uk_news_sources::agencies()
+        .iter()
+        .filter(|agency| selected.is_empty() || selected.contains(&agency.short_name))
+        .count();
+    let total = agency_total + usize::from(has_parliament);
+    let completed = Arc::new(AtomicUsize::new(0));
+    emit(&progress, "started", 0, total, "", "正在抓取來源");
+    let source_progress: Option<SourceProgress> = progress.as_ref().map(|callback| {
+        let callback = callback.clone();
+        let completed = completed.clone();
+        Arc::new(move |health: &uk_news_core::SourceHealth| {
+            let count = completed.fetch_add(1, Ordering::SeqCst) + 1;
+            callback(RunProgress {
+                kind: "source",
+                completed: count,
+                total,
+                source: health.source.clone(),
+                message: if health.warning.is_empty() {
+                    "來源已完成".into()
+                } else {
+                    "來源有警告".into()
+                },
+            });
+        }) as SourceProgress
+    });
+    let agency_future =
+        fetch_agencies_with_progress(since, until, options.workers, &selected, source_progress);
+    let parliament_future = async {
+        let result = if has_parliament {
+            fetch_parliament(since, until).await
+        } else {
+            FetchResult {
+                items: vec![],
+                health: vec![],
+                warnings: vec![],
+            }
+        };
+        if has_parliament {
+            let count = completed.fetch_add(1, Ordering::SeqCst) + 1;
+            emit(
+                &progress,
+                "source",
+                count,
+                total,
+                "UK Parliament",
+                "國會來源已完成",
+            );
         }
+        result
     };
-    finalize(options, agencies, parliament).await
+    let (agencies, parliament) = tokio::join!(agency_future, parliament_future);
+    finalize(options, agencies, parliament, progress, total).await
 }
 
 pub async fn retry_failed_sources(
     options: RunOptions,
     previous_summary_path: &Path,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    retry_failed_sources_with_progress(options, previous_summary_path, None).await
+}
+
+pub async fn retry_failed_sources_with_progress(
+    mut options: RunOptions,
+    previous_summary_path: &Path,
+    progress: Option<ProgressCallback>,
+) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    options.output = absolute_output(&options.output)?;
     let previous: RunSummary = serde_json::from_str(
         &fs::read_to_string(previous_summary_path)
             .with_context(|| format!("讀取執行摘要：{}", previous_summary_path.display()))?,
@@ -88,6 +183,27 @@ pub async fn retry_failed_sources(
     if failed_agencies.is_empty() && !retry_parliament {
         anyhow::bail!("上次執行沒有需要重試的異常來源")
     }
+    let total = failed_agencies.len() + usize::from(retry_parliament);
+    let completed = Arc::new(AtomicUsize::new(0));
+    emit(&progress, "started", 0, total, "", "正在重試異常來源");
+    let source_progress: Option<SourceProgress> = progress.as_ref().map(|callback| {
+        let callback = callback.clone();
+        let completed = completed.clone();
+        Arc::new(move |health: &uk_news_core::SourceHealth| {
+            let count = completed.fetch_add(1, Ordering::SeqCst) + 1;
+            callback(RunProgress {
+                kind: "source",
+                completed: count,
+                total,
+                source: health.source.clone(),
+                message: if health.warning.is_empty() {
+                    "來源已完成".into()
+                } else {
+                    "來源有警告".into()
+                },
+            });
+        }) as SourceProgress
+    });
 
     let (since, until) = utc_range(options.since, options.until);
     let retried_agencies = if failed_agencies.is_empty() {
@@ -97,10 +213,27 @@ pub async fn retry_failed_sources(
             warnings: vec![],
         }
     } else {
-        fetch_agencies(since, until, options.workers, &failed_agencies).await
+        fetch_agencies_with_progress(
+            since,
+            until,
+            options.workers,
+            &failed_agencies,
+            source_progress,
+        )
+        .await
     };
     let retried_parliament = if retry_parliament {
-        fetch_parliament(since, until).await
+        let result = fetch_parliament(since, until).await;
+        let count = completed.fetch_add(1, Ordering::SeqCst) + 1;
+        emit(
+            &progress,
+            "source",
+            count,
+            total,
+            "UK Parliament",
+            "國會來源已完成",
+        );
+        result
     } else {
         FetchResult {
             items: previous_data.parliament,
@@ -139,24 +272,34 @@ pub async fn retry_failed_sources(
         health,
         warnings: retried_agencies.warnings,
     };
-    finalize(options, agencies, retried_parliament).await
+    finalize(options, agencies, retried_parliament, progress, total).await
 }
 
 async fn finalize(
     options: RunOptions,
     mut agencies: FetchResult<NewsItem>,
     mut parliament: FetchResult<ParliamentBriefing>,
+    progress: Option<ProgressCallback>,
+    total: usize,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    emit(&progress, "filtering", total, total, "", "正在篩選相關新聞");
     let mut filtered = vec![];
     for item in &mut agencies.items {
-        if assess_news(item, &options.profile) {
-            filtered.push(item.clone())
+        if is_organisation_homepage(&item.link) {
+            continue;
+        }
+        let mut candidate = item.clone();
+        if assess_news(&mut candidate, &options.profile) {
+            *item = candidate.clone();
+            filtered.push(candidate)
         }
     }
     let mut filtered_p = vec![];
     for item in &mut parliament.items {
-        if assess_parliament(item, &options.profile) {
-            filtered_p.push(item.clone())
+        let mut candidate = item.clone();
+        if assess_parliament(&mut candidate, &options.profile) {
+            *item = candidate.clone();
+            filtered_p.push(candidate)
         }
     }
     let texts = agencies.items.iter().map(|x| x.title.clone()).chain(
@@ -169,6 +312,7 @@ async fn finalize(
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(4);
+    emit(&progress, "translating", total, total, "", "正在翻譯標題");
     let (translations, mut translation_warnings) = TranslationService::new(
         FreeGoogleProvider::default(),
         options.translation_cache.clone(),
@@ -176,6 +320,14 @@ async fn finalize(
     )
     .translate_all(texts)
     .await;
+    emit(
+        &progress,
+        "exporting",
+        total,
+        total,
+        "",
+        "正在產生 Excel 與執行摘要",
+    );
     export_news(
         &agencies.items,
         &filtered,
@@ -243,16 +395,39 @@ async fn finalize(
     let summary_path = options.output.with_extension("run.json");
     atomic_json(&summary_path, &summary)?;
     atomic_json(&data_path_for_summary(&summary_path), &data)?;
+    emit(&progress, "completed", total, total, "", "報表已完成");
     Ok((options.output, summary_path, summary))
 }
 
+fn is_organisation_homepage(link: &str) -> bool {
+    let Some(url) = url::Url::parse(link).ok() else {
+        return false;
+    };
+    let parts = url.path().trim_matches('/').split('/').collect::<Vec<_>>();
+    parts.len() == 3 && parts[0] == "government" && parts[1] == "organisations"
+}
+
+fn absolute_output(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
 fn utc_range(since: NaiveDate, until: NaiveDate) -> (DateTime<Utc>, DateTime<Utc>) {
+    let taipei = chrono_tz::Asia::Taipei;
     (
-        DateTime::<Utc>::from_naive_utc_and_offset(since.and_hms_opt(0, 0, 0).unwrap(), Utc),
-        DateTime::<Utc>::from_naive_utc_and_offset(
-            (until + chrono::Days::new(1)).and_hms_opt(0, 0, 0).unwrap(),
-            Utc,
-        ),
+        taipei
+            .from_local_datetime(&since.and_hms_opt(0, 0, 0).unwrap())
+            .single()
+            .unwrap()
+            .with_timezone(&Utc),
+        taipei
+            .from_local_datetime(&(until + chrono::Days::new(1)).and_hms_opt(0, 0, 0).unwrap())
+            .single()
+            .unwrap()
+            .with_timezone(&Utc),
     )
 }
 
@@ -330,6 +505,33 @@ pub fn default_run_options(since: NaiveDate, until: NaiveDate, output: PathBuf) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn period_uses_taipei_midnight_like_python() {
+        let (start, end) = utc_range(
+            NaiveDate::from_ymd_opt(2026, 9, 8).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 9, 22).unwrap(),
+        );
+        assert_eq!(start.to_rfc3339(), "2026-09-07T16:00:00+00:00");
+        assert_eq!(end.to_rfc3339(), "2026-09-22T16:00:00+00:00");
+    }
+
+    #[test]
+    fn organisation_homepage_is_excluded_from_initial_selection() {
+        assert!(is_organisation_homepage(
+            "https://www.gov.uk/government/organisations/government-digital-service"
+        ));
+        assert!(!is_organisation_homepage(
+            "https://www.gov.uk/government/organisations/government-digital-service/about/research"
+        ));
+    }
+
+    #[test]
+    fn run_summary_output_path_is_absolute() {
+        assert!(absolute_output(Path::new("report.xlsx"))
+            .unwrap()
+            .is_absolute());
+    }
 
     #[test]
     fn retry_sidecar_follows_summary_name() {

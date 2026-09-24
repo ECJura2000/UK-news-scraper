@@ -80,6 +80,11 @@ _SUPPORTING_KEYWORDS = {
     "resilience",
     "supply chain",
     "technology",
+    "cookies",
+    "national security",
+    "procurement",
+    "interoperability",
+    "government procurement",
 }
 
 

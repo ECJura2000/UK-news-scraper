@@ -11,6 +11,9 @@ path = "src/main.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+desktop-default = []
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true

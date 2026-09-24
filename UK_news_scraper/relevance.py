@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from urllib.parse import urlparse
 
 from .models import NewsItem, ParliamentBriefing
 from .profiles import FilterProfile, KeywordStrength, default_profile
@@ -131,6 +132,10 @@ def apply_profile_filter(
     active_profile = profile or default_profile()
     filtered = []
     for item in items:
+        if isinstance(item, NewsItem):
+            path = urlparse(item.link).path.strip("/").split("/")
+            if len(path) == 3 and path[:2] == ["government", "organisations"]:
+                continue
         assessment = assess_relevance(item.title, item.summary, active_profile)
         if not assessment.included:
             continue

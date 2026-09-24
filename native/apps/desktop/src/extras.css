@@ -16,7 +16,7 @@
 .keyword-editor summary { cursor: pointer; font-weight: 800; }
 .keyword-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
 .keyword-grid textarea { width: 100%; min-height: 90px; margin-top: 7px; border: 1px solid #cbd7df; border-radius: 8px; padding: 9px; resize: vertical; }
-.preview-head { display: grid; grid-template-columns: 1fr 1.4fr repeat(4, .7fr); gap: 8px; align-items: end; }
+.preview-head { display: grid; grid-template-columns: 1fr 1.4fr repeat(5, .8fr); gap: 8px; align-items: end; }
 .preview-head h2 small { display: block; color: #75828c; font-size: 12px; }
 .table-wrap { overflow: auto; max-height: 520px; margin-top: 14px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -24,3 +24,11 @@ th, td { border-bottom: 1px solid #e5ecef; padding: 9px; text-align: left; verti
 th { position: sticky; top: 0; background: #eef6f8; }
 .link { border: 0; background: transparent; padding: 0; color: #086c8a; text-align: left; cursor: pointer; }
 @media(max-width:900px) { .keyword-grid, .preview-head { grid-template-columns: 1fr; } }
+.date-presets { display: flex; gap: 8px; margin-bottom: 12px; }
+.date-presets button { padding: 7px 11px; border: 1px solid #cbd7df; border-radius: 8px; background: #f7fafb; cursor: pointer; }
+.run-progress { margin-top: 15px; }
+.run-progress progress { width: 100%; height: 13px; accent-color: #087f76; }
+.run-progress small, .match-reason { display: block; color: #586b79; font-size: 12px; margin-top: 5px; }
+.health-list { grid-column: 1/-1; display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 8px; }
+.health-list article { display: grid; gap: 3px; padding: 10px; border: 1px solid #dbe5ea; border-radius: 8px; background: #fafcfd; }
+.health-list small { color: #8b4d12; }

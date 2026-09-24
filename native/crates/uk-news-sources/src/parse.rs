@@ -6,14 +6,31 @@ use serde_json::Value;
 use uk_news_core::{Agency, ContentType, NewsItem};
 use url::Url;
 
-pub fn content_type_for_link(link: &str, title: &str) -> ContentType {
-    let text = format!("{} {}", link.to_lowercase(), title.to_lowercase());
-    if text.contains("/guidance/") || text.contains("guidance") || text.contains("/collection/") {
+pub(crate) fn clean_text(value: &str) -> String {
+    let doc = Html::parse_fragment(value);
+    let text = doc.root_element().text().collect::<Vec<_>>().join(" ");
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let apostrophe = regex::Regex::new(r"(?P<a>[A-Za-z])[’‘](?P<b>[A-Za-z])").unwrap();
+    apostrophe.replace_all(&text, "$a'$b").into_owned()
+}
+
+pub fn content_type_for_link(link: &str, title: &str, context: &str) -> ContentType {
+    let text = format!("{link} {title} {context}").to_lowercase();
+    let path = Url::parse(link)
+        .ok()
+        .map(|value| value.path().to_lowercase())
+        .unwrap_or_default();
+    if path.contains("/guidance/") || path.contains("/collection/") || text.contains("guidance") {
         ContentType::Guidance
-    } else if text.contains("report") {
+    } else if path.contains("/report")
+        || path.contains("/research/")
+        || text.contains("report")
+        || text.contains("research")
+    {
         ContentType::Report
-    } else if text.contains("/government/publications/")
-        || text.contains("/publications/")
+    } else if path.contains("/publication")
+        || path.contains("/consultation")
+        || text.contains("publication")
         || text.contains("consultation")
     {
         ContentType::Publication
@@ -73,7 +90,7 @@ pub fn parse_feed_document(
         }
         let title = entry
             .title
-            .map(|x| x.content.trim().to_string())
+            .map(|x| clean_text(&x.content))
             .unwrap_or_default();
         let link = entry
             .links
@@ -83,7 +100,10 @@ pub fn parse_feed_document(
         if title.is_empty() || link.is_empty() || !allowed(agency, &link) {
             continue;
         }
-        let summary = entry.summary.map(|x| x.content).unwrap_or_default();
+        let summary = entry
+            .summary
+            .map(|x| clean_text(&x.content))
+            .unwrap_or_default();
         out.push(NewsItem {
             agency: agency.display_name(),
             agency_en: agency.name_en.clone(),
@@ -104,7 +124,7 @@ pub fn parse_feed_document(
             summary_keyword_strengths: Default::default(),
             relevance_score: 0,
             relevance_level: String::new(),
-            content_type: content_type_for_link(&link, &title),
+            content_type: content_type_for_link(&link, &title, ""),
         });
     }
     Ok(out)
@@ -231,7 +251,11 @@ pub fn parse_official_html(
                 ],
             )
         });
-    if content_page || explicit_article_date.is_some() {
+    let has_json_ld = doc
+        .select(&Selector::parse("script[type='application/ld+json']").unwrap())
+        .next()
+        .is_some();
+    if content_page || explicit_article_date.is_some() || has_json_ld {
         if let (Some(title), Some(date)) = (title, date) {
             if let Some(published_at) = parse_date(&date) {
                 if published_at >= since && published_at < until && title.len() >= 12 {
@@ -242,6 +266,7 @@ pub fn parse_official_html(
                         published_at,
                         page_url.into(),
                         summary,
+                        &doc.root_element().text().collect::<Vec<_>>().join(" "),
                     ))
                 }
             }
@@ -275,12 +300,11 @@ pub fn parse_official_html(
         {
             continue;
         }
-        if !allowed(agency, &link)
-            || link
-                .to_lowercase()
-                .split('?')
-                .next()
-                .is_some_and(|x| x.ends_with(".pdf"))
+        if link
+            .to_lowercase()
+            .split('?')
+            .next()
+            .is_some_and(|x| x.ends_with(".pdf"))
         {
             continue;
         }
@@ -304,6 +328,7 @@ pub fn parse_official_html(
             published_at,
             page_url.into(),
             String::new(),
+            &c.text().collect::<Vec<_>>().join(" "),
         ))
     }
     dedupe(out)
@@ -316,16 +341,17 @@ fn news(
     published_at: DateTime<Utc>,
     source_feed: String,
     summary: String,
+    context: &str,
 ) -> NewsItem {
     NewsItem {
         agency: a.display_name(),
         agency_en: a.name_en.clone(),
         unit_category: Some(a.short_name.clone()),
-        content_type: content_type_for_link(&link, &title),
-        title,
+        content_type: content_type_for_link(&link, &title, context),
+        title: clean_text(&title),
         link,
         published_at,
-        summary,
+        summary: clean_text(&summary),
         source_feed,
         matched_topics: vec![],
         matched_keywords: vec![],

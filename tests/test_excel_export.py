@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from openpyxl import load_workbook
+from openpyxl.cell.rich_text import CellRichText
 
 from UK_news_scraper.calendar_utils import CalendarMode
 from UK_news_scraper.excel_exporter import (
@@ -10,6 +11,7 @@ from UK_news_scraper.excel_exporter import (
     _translate_with_deep_translator,
     export_news,
 )
+from UK_news_scraper.font_policy import CHINESE_FONT, ENGLISH_FONT
 from UK_news_scraper.models import NewsItem, ParliamentBriefing
 
 
@@ -159,3 +161,29 @@ def test_export_uses_roc_number_format_and_strength_columns(tmp_path, monkeypatc
     assert filtered_sheet["L3"].value == "artificial intelligence"
     assert filtered_sheet["L3"].fill.fgColor.rgb == "00E6A817"
     assert workbook["篩選設定"]["B7"].value == "roc"
+
+
+def test_export_formats_english_and_chinese_runs_without_losing_hyperlinks(tmp_path, monkeypatch):
+    title = "AI policy"
+    monkeypatch.setattr(
+        "UK_news_scraper.excel_exporter._translate_texts",
+        lambda texts, content_label: {title: "AI 公共政策"},
+    )
+    monkeypatch.setattr("UK_news_scraper.excel_exporter._ensure_translations_present", lambda *args: None)
+    item = NewsItem(
+        "UK Parliament", "UK Parliament", "A", title, "https://example.com/ai",
+        datetime(2026, 6, 8, tzinfo=timezone.utc),
+    )
+
+    path = export_news([item], [], tmp_path / "fonts.xlsx")
+    workbook = load_workbook(path, rich_text=True)
+    sheet = workbook["全部新聞"]
+    translation = sheet["F3"].value
+
+    assert sheet["F2"].font.name == ENGLISH_FONT
+    assert sheet["A1"].font.name == CHINESE_FONT
+    assert isinstance(translation, CellRichText)
+    assert str(translation) == "AI 公共政策"
+    assert [part.font.rFont for part in translation] == [ENGLISH_FONT, CHINESE_FONT]
+    assert sheet["G2"].hyperlink.target == "https://example.com/ai"
+    assert sheet["G2"].font.name == ENGLISH_FONT

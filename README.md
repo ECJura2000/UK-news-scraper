@@ -81,6 +81,9 @@ v2.2 使用 Rust 抓取與匯出核心，以及 Tauri 2 + React/TypeScript 桌�
 自訂日期、設定檔、逐來源健康、異常來源重試、結果篩選與命中原因，以及
 歷史紀錄與開啟 Excel。執行設定可選擇 1 至 16 個機關來源併發抓取數，
 預設為 6；這個選項也會套用於「重試異常來源」。
+桌面介面與 Excel 報表使用 Times New Roman 顯示英文、標楷體顯示中文；
+macOS 對應 BiauKaiTC，Windows 對應 DFKai-SB。Linux 若未安裝這些字型，
+系統會以可用的襯線字型替代。
 
 需要新增搜尋主題時，下載並複製[範例主題設定檔](examples/uk-topic-profile.example.json)，
 修改 `profile_id`、`name`、`topics`、關鍵詞強度及既有 `selected_sources`。

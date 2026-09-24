@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+from copy import copy
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .calendar_utils import CalendarMode, excel_number_format
 from .dedupe import dedupe_news_items, normalize_title
+from .font_policy import CHINESE_FONT, ENGLISH_FONT, language_runs
 from .models import NewsItem, ParliamentBriefing
 from .profiles import (
     FilterProfile,
@@ -146,6 +150,8 @@ def export_news(
     _style_filtered_sheet(ws_filtered)
     _style_parliament_sheet(ws_parliament)
     _style_settings_sheet(ws_settings)
+    for sheet in wb:
+        _apply_bilingual_fonts(sheet, options.calendar_mode)
 
     temporary_path = path.with_name(f"{path.stem}.tmp{path.suffix}")
     try:
@@ -160,6 +166,47 @@ def export_news(
         temporary_path.unlink(missing_ok=True)
         raise
     return path
+
+
+def _apply_bilingual_fonts(ws, calendar_mode: CalendarMode) -> None:
+    for row in ws:
+        for cell in row:
+            if cell.value is None:
+                continue
+            value = cell.value
+            if isinstance(value, str):
+                runs = language_runs(value)
+                if not runs:
+                    continue
+                font = copy(cell.font)
+                font.name = runs[0][0]
+                cell.font = font
+                if len(runs) > 1:
+                    cell.value = CellRichText(
+                        *(
+                            TextBlock(
+                                InlineFont(
+                                    rFont=family,
+                                    b=font.bold,
+                                    i=font.italic,
+                                    color=copy(font.color) if font.color else None,
+                                    sz=font.sz,
+                                    u=font.underline,
+                                    strike=font.strike,
+                                ),
+                                text,
+                            )
+                            for family, text in runs
+                        )
+                    )
+            else:
+                font = copy(cell.font)
+                font.name = (
+                    CHINESE_FONT
+                    if calendar_mode is CalendarMode.ROC and cell.is_date
+                    else ENGLISH_FONT
+                )
+                cell.font = font
 
 
 def _write_parliament_sheet(

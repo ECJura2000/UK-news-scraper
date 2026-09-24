@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.2 - 2026-09-24
+
+- Set English text in exported Excel workbooks and the desktop interface to Times New Roman, and Chinese text to the platform's 標楷體 family.
+- Preserve separate fonts within mixed English and Chinese Excel cells, including titles and headings, without changing workbook data or hyperlinks.
+
 ## 2.2.1 - 2026-09-24
 
 - Added an editable JSON topic-profile example to the release and a desktop import action that saves custom topics locally.

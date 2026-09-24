@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
-use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook, Worksheet, XlsxError};
+use rust_xlsxwriter::{
+    Color, Format, FormatAlign, FormatBorder, FormatUnderline, Workbook, Worksheet, XlsxError,
+};
 use std::{
     collections::HashMap,
     fs,
@@ -60,8 +62,120 @@ pub struct ExportOptions<'a> {
     pub profile: &'a FilterProfile,
 }
 
+const ENGLISH_FONT: &str = "Times New Roman";
+#[cfg(target_os = "macos")]
+const CHINESE_FONT: &str = "BiauKaiTC";
+#[cfg(not(target_os = "macos"))]
+const CHINESE_FONT: &str = "DFKai-SB";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Script {
+    English,
+    Chinese,
+}
+
+impl Script {
+    fn font_name(self) -> &'static str {
+        match self {
+            Self::English => ENGLISH_FONT,
+            Self::Chinese => CHINESE_FONT,
+        }
+    }
+}
+
+fn is_chinese_character(ch: char) -> bool {
+    matches!(ch as u32, 0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F | 0xFF00..=0xFFEF)
+}
+
+fn font_runs(value: &str) -> Vec<(Script, String)> {
+    let mut runs: Vec<(Script, String)> = Vec::new();
+    for ch in value.chars() {
+        let script = if is_chinese_character(ch) {
+            Script::Chinese
+        } else if !ch.is_alphanumeric() {
+            runs.last().map(|run| run.0).unwrap_or(Script::English)
+        } else {
+            Script::English
+        };
+        if let Some((last_script, text)) = runs.last_mut() {
+            if *last_script == script {
+                text.push(ch);
+                continue;
+            }
+        }
+        runs.push((script, ch.to_string()));
+    }
+    runs
+}
+
+fn text_format(base: &Format, script: Script) -> Format {
+    base.clone().set_font_name(script.font_name())
+}
+
+fn write_text(
+    ws: &mut Worksheet,
+    row: u32,
+    col: u16,
+    value: &str,
+    base: &Format,
+    bold: bool,
+) -> Result<(), XlsxError> {
+    let runs = font_runs(value);
+    if runs.len() < 2 {
+        let script = runs.first().map(|run| run.0).unwrap_or(Script::English);
+        ws.write_string_with_format(row, col, value, &text_format(base, script))?;
+    } else {
+        let fonts: Vec<Format> = runs
+            .iter()
+            .map(|(script, _)| {
+                let format = Format::new().set_font_name(script.font_name());
+                if bold {
+                    format.set_bold()
+                } else {
+                    format
+                }
+            })
+            .collect();
+        let segments: Vec<(&Format, &str)> = runs
+            .iter()
+            .enumerate()
+            .map(|(index, (_, text))| (&fonts[index], text.as_str()))
+            .collect();
+        ws.write_rich_string_with_format(row, col, &segments, base)?;
+    }
+    Ok(())
+}
+
+fn merge_text(ws: &mut Worksheet, row: u32, col: u16, value: &str) -> Result<(), XlsxError> {
+    let base = Format::new();
+    let first_script = font_runs(value)
+        .first()
+        .map(|run| run.0)
+        .unwrap_or(Script::English);
+    ws.merge_range(
+        row,
+        col,
+        row + 1,
+        col,
+        value,
+        &text_format(&base, first_script),
+    )?;
+    if font_runs(value).len() > 1 {
+        write_text(ws, row, col, value, &base, false)?;
+    }
+    Ok(())
+}
+
+fn url_format() -> Format {
+    Format::new()
+        .set_font_name(ENGLISH_FONT)
+        .set_font_color(Color::Blue)
+        .set_underline(FormatUnderline::Single)
+}
+
 fn header_format() -> Format {
     Format::new()
+        .set_font_name(CHINESE_FONT)
         .set_bold()
         .set_background_color(Color::RGB(0xD9EAF7))
         .set_align(FormatAlign::Center)
@@ -69,14 +183,20 @@ fn header_format() -> Format {
 }
 fn section_format() -> Format {
     Format::new()
+        .set_font_name(CHINESE_FONT)
         .set_bold()
         .set_background_color(Color::RGB(0xBDD7EE))
 }
 fn date_format(mode: CalendarMode) -> Format {
-    Format::new().set_num_format(match mode {
-        CalendarMode::Gregorian => "yyyy-mm-dd",
-        CalendarMode::Roc => "[$-zh-TW-x-roc]e\"年\"mm\"月\"dd\"日\"",
-    })
+    Format::new()
+        .set_font_name(match mode {
+            CalendarMode::Gregorian => ENGLISH_FONT,
+            CalendarMode::Roc => CHINESE_FONT,
+        })
+        .set_num_format(match mode {
+            CalendarMode::Gregorian => "yyyy-mm-dd",
+            CalendarMode::Roc => "[$-zh-TW-x-roc]e\"年\"mm\"月\"dd\"日\"",
+        })
 }
 fn date_text(date: chrono::NaiveDate, mode: CalendarMode) -> String {
     match mode {
@@ -110,9 +230,9 @@ pub fn export_news(
     {
         let ws = workbook.add_worksheet();
         ws.set_name(REQUIRED_SHEETS[1])?;
-        ws.write_string_with_format(0, 0, "新聞稿", &section_format())?;
+        write_text(ws, 0, 0, "新聞稿", &section_format(), true)?;
         let next = write_news(ws, 1, filtered, true, translations, options.calendar_mode)? + 2;
-        ws.write_string_with_format(next, 0, "研究", &section_format())?;
+        write_text(ws, next, 0, "研究", &section_format(), true)?;
         write_parliament(
             ws,
             next + 1,
@@ -157,7 +277,7 @@ pub fn export_news(
 fn write_headers(ws: &mut Worksheet, row: u32, headers: &[&str]) -> Result<(), XlsxError> {
     let f = header_format();
     for (c, v) in headers.iter().enumerate() {
-        ws.write_string_with_format(row, c as u16, *v, &f)?;
+        write_text(ws, row, c as u16, v, &f, true)?;
     }
     Ok(())
 }
@@ -189,7 +309,7 @@ fn write_news(
             item.link.clone(),
         ];
         for (c, v) in values.iter().enumerate() {
-            ws.write_string(row, c as u16, v)?;
+            write_text(ws, row, c as u16, v, &Format::new(), false)?;
         }
         if matches {
             let extra = [
@@ -202,23 +322,16 @@ fn write_news(
                 item.supporting_matched_keywords.join("、"),
             ];
             for (c, v) in extra.iter().enumerate() {
-                ws.write_string(row, (c + 7) as u16, v)?;
+                write_text(ws, row, (c + 7) as u16, v, &Format::new(), false)?;
             }
         }
         let zh = tr
             .get(&item.title)
             .cloned()
             .unwrap_or_else(|| item.title.clone());
-        ws.write_string(row + 1, 5, &zh)?;
+        write_text(ws, row + 1, 5, &zh, &Format::new(), false)?;
         for c in [0, 1, 2, 3, 4, 6] {
-            ws.merge_range(
-                row,
-                c,
-                row + 1,
-                c,
-                values[c as usize].as_str(),
-                &Format::new(),
-            )?;
+            merge_text(ws, row, c, values[c as usize].as_str())?;
         }
         if matches {
             let extra = [
@@ -232,14 +345,24 @@ fn write_news(
             ];
             for (offset, value) in extra.iter().enumerate() {
                 let c = (offset + 7) as u16;
-                ws.merge_range(row, c, row + 1, c, value, &Format::new())?;
+                merge_text(ws, row, c, value)?;
             }
-            ws.write_number(row, 10, item.relevance_score as f64)?;
+            ws.write_number_with_format(
+                row,
+                10,
+                item.relevance_score as f64,
+                &Format::new().set_font_name(ENGLISH_FONT),
+            )?;
         }
-        ws.write_number(row, 0, (i + 1) as f64)?;
+        ws.write_number_with_format(
+            row,
+            0,
+            (i + 1) as f64,
+            &Format::new().set_font_name(ENGLISH_FONT),
+        )?;
         ws.write_datetime_with_format(row, 2, item.published_at.date_naive(), &date_format(mode))?;
         if !item.link.is_empty() {
-            ws.write_url(row, 6, item.link.as_str())?;
+            ws.write_url_with_format(row, 6, item.link.as_str(), &url_format())?;
         }
         row += 2;
     }
@@ -279,10 +402,24 @@ fn write_parliament(
             item.fetched_from.clone(),
         ];
         for (c, v) in values.iter().enumerate() {
-            ws.write_string(row, c as u16, v)?;
+            write_text(ws, row, c as u16, v, &Format::new(), false)?;
         }
-        ws.write_string(row + 1, 8, tr.get(&item.title).unwrap_or(&item.title))?;
-        ws.write_string(row + 1, 9, tr.get(&item.summary).unwrap_or(&item.summary))?;
+        write_text(
+            ws,
+            row + 1,
+            8,
+            tr.get(&item.title).unwrap_or(&item.title),
+            &Format::new(),
+            false,
+        )?;
+        write_text(
+            ws,
+            row + 1,
+            9,
+            tr.get(&item.summary).unwrap_or(&item.summary),
+            &Format::new(),
+            false,
+        )?;
         if matches {
             let extra = [
                 item.matched_topics.join("、"),
@@ -294,11 +431,11 @@ fn write_parliament(
                 item.supporting_matched_keywords.join("、"),
             ];
             for (c, v) in extra.iter().enumerate() {
-                ws.write_string(row, (c + 14) as u16, v)?;
+                write_text(ws, row, (c + 14) as u16, v, &Format::new(), false)?;
             }
         }
         for c in [0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13] {
-            ws.merge_range(row, c, row + 1, c, &values[c as usize], &Format::new())?;
+            merge_text(ws, row, c, &values[c as usize])?;
         }
         if matches {
             let extra = [
@@ -312,16 +449,21 @@ fn write_parliament(
             ];
             for (offset, value) in extra.iter().enumerate() {
                 let c = (offset + 14) as u16;
-                ws.merge_range(row, c, row + 1, c, value, &Format::new())?;
+                merge_text(ws, row, c, value)?;
             }
-            ws.write_number(row, 17, item.relevance_score as f64)?;
+            ws.write_number_with_format(
+                row,
+                17,
+                item.relevance_score as f64,
+                &Format::new().set_font_name(ENGLISH_FONT),
+            )?;
         }
         ws.write_datetime_with_format(row, 0, item.published_at.date_naive(), &date_format(mode))?;
         if !item.webpage_url.is_empty() {
-            ws.write_url(row, 11, item.webpage_url.as_str())?;
+            ws.write_url_with_format(row, 11, item.webpage_url.as_str(), &url_format())?;
         }
         if !item.pdf_url.is_empty() {
-            ws.write_url(row, 12, item.pdf_url.as_str())?;
+            ws.write_url_with_format(row, 12, item.pdf_url.as_str(), &url_format())?;
         }
         row += 2;
     }
@@ -349,8 +491,8 @@ fn write_settings(
         ("選用來源", profile.selected_sources.join("、")),
     ];
     for (i, (k, v)) in rows.iter().enumerate() {
-        ws.write_string((i + 1) as u32, 0, *k)?;
-        ws.write_string((i + 1) as u32, 1, v)?;
+        write_text(ws, (i + 1) as u32, 0, k, &Format::new(), false)?;
+        write_text(ws, (i + 1) as u32, 1, v, &Format::new(), false)?;
     }
     Ok(())
 }
@@ -366,6 +508,7 @@ fn style_news(ws: &mut Worksheet) -> Result<(), XlsxError> {
 mod tests {
     use super::*;
     use calamine::{open_workbook_auto, Reader};
+    use std::io::Read;
     use tempfile::tempdir;
 
     #[test]
@@ -402,5 +545,71 @@ mod tests {
                 .map(|x| x.to_string())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn bilingual_fonts_are_written_to_real_excel_runs() {
+        assert_eq!(
+            font_runs("AI 公共政策"),
+            vec![
+                (Script::English, "AI ".into()),
+                (Script::Chinese, "公共政策".into()),
+            ]
+        );
+        let dir = tempdir().unwrap();
+        let output = dir.path().join("fonts.xlsx");
+        let profile = FilterProfile {
+            profile_id: "test".into(),
+            name: "AI 政策".into(),
+            description: String::new(),
+            version: 1,
+            selected_sources: vec!["BIST".into()],
+            topics: vec![],
+            minimum_score: 3,
+        };
+        let news: NewsItem = serde_json::from_value(serde_json::json!({
+            "agency": "BIST",
+            "agency_en": "BIST",
+            "title": "AI policy",
+            "link": "https://example.com/ai",
+            "published_at": "2026-09-24T00:00:00Z"
+        }))
+        .unwrap();
+        let translations = HashMap::from([("AI policy".into(), "AI 公共政策".into())]);
+        export_news(
+            &[news],
+            &[],
+            &[],
+            &[],
+            &translations,
+            &output,
+            ExportOptions {
+                calendar_mode: CalendarMode::Gregorian,
+                profile: &profile,
+            },
+        )
+        .unwrap();
+
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&output).unwrap()).unwrap();
+        let mut strings = String::new();
+        archive
+            .by_name("xl/sharedStrings.xml")
+            .unwrap()
+            .read_to_string(&mut strings)
+            .unwrap();
+        assert!(strings.contains("Times New Roman"));
+        assert!(strings.contains(CHINESE_FONT));
+        assert!(strings.contains("公共政策"));
+        let mut sheet = String::new();
+        archive
+            .by_name("xl/worksheets/sheet1.xml")
+            .unwrap()
+            .read_to_string(&mut sheet)
+            .unwrap();
+        assert!(sheet.contains("hyperlink"));
+        let mut workbook = open_workbook_auto(&output).unwrap();
+        let values = workbook.worksheet_range(REQUIRED_SHEETS[0]).unwrap();
+        assert_eq!(values.get((1, 5)).unwrap().to_string(), "AI policy");
+        assert_eq!(values.get((2, 5)).unwrap().to_string(), "AI 公共政策");
     }
 }

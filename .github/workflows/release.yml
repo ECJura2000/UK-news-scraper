@@ -164,7 +164,7 @@ jobs:
         working-directory: native/apps/desktop
         run: |
           case "$RUNNER_OS" in
-            Linux) npm exec tauri build -- --features desktop-default --bundles deb appimage --ci ;;
+            Linux) npm exec tauri build -- --features desktop-default --bundles deb --ci ;;
             macOS) npm exec tauri build -- --features desktop-default --bundles app --ci --no-sign ;;
             Windows) npm exec tauri build -- --features desktop-default --bundles nsis --ci ;;
           esac
@@ -193,10 +193,8 @@ jobs:
             cp "$installer" "dist/release/UKNewsScraper-${version}-Windows-Setup.exe"
           else
             deb="$(find "$bundle_root/deb" -maxdepth 1 -name '*.deb' -type f -print -quit)"
-            appimage="$(find "$bundle_root/appimage" -maxdepth 1 -name '*.AppImage' -type f -print -quit)"
-            test -n "$deb" && test -n "$appimage"
+            test -n "$deb"
             cp "$deb" "dist/release/UKNewsScraper-${version}-Linux-x86_64.deb"
-            cp "$appimage" "dist/release/UKNewsScraper-${version}-Linux-x86_64.AppImage"
           fi
       - name: Enforce desktop installer size budget
         shell: bash
@@ -212,7 +210,6 @@ jobs:
           path: |
             dist/release/*.zip
             dist/release/*.deb
-            dist/release/*.AppImage
             dist/release/*-Setup.exe
             dist/release/*-SIZE-MANIFEST.txt
           if-no-files-found: error
@@ -256,13 +253,12 @@ jobs:
           test "$(find release-assets -maxdepth 1 -name '*.zip' -type f | wc -l)" -eq 5
           test "$(find release-assets -maxdepth 1 -name '*-Source.zip' -type f | wc -l)" -eq 1
           test "$(find release-assets -maxdepth 1 -name '*.deb' -type f | wc -l)" -eq 1
-          test "$(find release-assets -maxdepth 1 -name '*.AppImage' -type f | wc -l)" -eq 1
           test "$(find release-assets -maxdepth 1 -name '*-Setup.exe' -type f | wc -l)" -eq 1
       - name: Create consolidated checksum and enforce release size budget
         shell: bash
         run: |
           cd release-assets
-          sha256sum ./*.zip ./*.deb ./*.AppImage ./*-Setup.exe > UKNewsScraper-${{ steps.release.outputs.tag }}-SHA256SUMS.txt
+          sha256sum ./*.zip ./*.deb ./*-Setup.exe > UKNewsScraper-${{ steps.release.outputs.tag }}-SHA256SUMS.txt
           rm -f ./*-SIZE-MANIFEST.txt
           cd ..
           python scripts/check_release_size.py release-assets \

@@ -17,7 +17,7 @@ Deployment, source maintenance, and delivery recovery are documented in [docs/MA
 - [交給 Codex 或其他 AI 工具執行](AI_START_HERE.md)
 
 正式 Release 會同時提供 Windows 安裝程式、macOS 桌面 App ZIP、Linux
-DEB／AppImage、三平台命令列可攜版及 `UKNewsScraper-版本-Source.zip`。
+DEB、三平台命令列可攜版及 `UKNewsScraper-版本-Source.zip`。
 macOS 桌面 App 如未經 Apple 簽章，首次啟動須於系統安全性設定允許開啟。
 若要讓 AI 工具協助安裝、修改或排程，
 請下載 Source ZIP；AI 代理進入專案後可直接讀取 [AGENTS.md](AGENTS.md)

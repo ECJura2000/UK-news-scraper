@@ -86,10 +86,13 @@ macOS 對應 BiauKaiTC，Windows 對應 DFKai-SB。Linux 若未安裝這些字�
 系統會以可用的襯線字型替代。
 
 需要新增搜尋主題時，下載並複製[範例主題設定檔](examples/uk-topic-profile.example.json)，
-修改 `profile_id`、`name`、`topics`、關鍵詞強度及既有 `selected_sources`。
+修改 `profile_id`、`name`、`topics`、關鍵詞強度及 `selected_sources`。
 桌面版按「匯入 JSON」選取單一主題設定檔，通過驗證後會保存在本機並自動選用；
 「下載範例 JSON」會開啟最新版 Release 的範例檔。若匯入相同 ID，介面會先詢問
-是否覆寫。JSON 只能調整既有官方來源的選擇與篩選規則，不能新增抓取網站。
+是否覆寫。`selected_sources` 可使用官方來源名錄中標為「可查詢」的 ID；
+JSON 不能指定任意新網站，名錄中「僅列名」來源也不能選取。
+例如在範例檔的 `selected_sources` 中加入 `"govuk:department-of-health-and-social-care"`
+或 `"court-ew:judgments"`；桌面來源卡會顯示可填入的 JSON ID。
 每週排程仍使用內建 `uk-tech-law`，不會因桌面版匯入而自動更改。
 
 命令列也可直接讀取單一主題 JSON，不需要先匯入桌面版：
@@ -160,6 +163,17 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 每筆新聞會用兩列呈現，第一列是英文新聞標題，第二列是透過 `googletrans` 翻譯的繁體中文標題；`編號`、部會、日期、分類與連結會合併跨兩列。
 
 ## 目前納入機關
+
+桌面版的「官方來源」另有英國中央、蘇格蘭、威爾斯、北愛爾蘭與法院／審裁處名錄。
+GOV.UK 上標記為 live 的機關可透過官方搜尋 API 查詢，特定期間仍可能沒有發布資料；
+司法機關判決與公告使用其官方 RSS。當 RSS 最舊項目晚於查詢起日，報表會標為降級，
+提示該期間可能不完整。
+名錄中尚未驗證獨立發布頁的機關只供查閱，不能加入 JSON 主題設定檔。
+新增來源必須自行勾選並另存或匯入 JSON；內建每週科技法制設定維持下列原有來源。
+名錄快照在 `UK_news_scraper/data/source_catalog.json`，更新時可執行
+`python scripts/refresh_source_catalog.py` 並檢視差異。BBC 只列名，不抓取。
+英格蘭與威爾斯的法院判決目前使用司法機關 RSS；The National Archives
+Find Case Law 僅作連結參考，沒有取得大量程式查詢授權前不批次擷取。
 
 - BIST / DCMS / AI Security Institute / ICO / CMA / UK IPO / GDS
 - Ofcom / NCSC / Electoral Commission

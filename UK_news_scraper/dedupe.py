@@ -9,7 +9,15 @@ from .models import NewsItem
 def dedupe_news_items(items: Iterable[NewsItem]) -> list[NewsItem]:
     seen: set[tuple[str, ...]] = set()
     output: list[NewsItem] = []
-    for item in sorted(items, key=lambda news: news.published_at, reverse=True):
+    for item in sorted(
+        items,
+        key=lambda news: (
+            -news.published_at.timestamp(),
+            news.unit_category or news.agency,
+            news.link,
+            news.title,
+        ),
+    ):
         key = news_item_key(item)
         if key in seen:
             continue

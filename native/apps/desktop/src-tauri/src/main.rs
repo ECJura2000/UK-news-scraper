@@ -296,8 +296,8 @@ struct UiRunResult {
 }
 static ACTIVE_RUN: OnceLock<Mutex<Option<tokio::task::AbortHandle>>> = OnceLock::new();
 #[tauri::command]
-fn source_catalog() -> Vec<uk_news_core::Agency> {
-    uk_news_sources::agencies()
+fn source_catalog() -> Vec<uk_news_sources::CatalogEntry> {
+    uk_news_sources::catalog_entries()
 }
 #[tauri::command]
 fn suggested_output(since: String, until: String, profile_id: String) -> Result<String, String> {

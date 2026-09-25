@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 
 from UK_news_scraper.dedupe import dedupe_news_items
 from UK_news_scraper.excel_exporter import _dedupe_for_export
@@ -25,3 +26,10 @@ def test_fetch_and_export_use_same_dedupe_contract():
 
 def test_duplicate_link_is_removed():
     assert len(dedupe_news_items([_item("https://example.com/a"), _item("https://example.com/a/")])) == 1
+
+
+def test_shared_official_link_keeps_same_agency_regardless_of_fetch_order():
+    first = replace(_item("https://www.gov.uk/government/news/shared"), unit_category="govuk:alpha", agency="Alpha")
+    second = replace(first, unit_category="govuk:beta", agency="Beta")
+    assert dedupe_news_items([first, second])[0].agency == "Alpha"
+    assert dedupe_news_items([second, first])[0].agency == "Alpha"

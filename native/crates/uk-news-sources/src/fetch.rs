@@ -1,4 +1,4 @@
-use crate::{agencies, parse_feed_document, parse_official_html};
+use crate::{agencies, content_type_for_link, parse_feed_document, parse_official_html};
 use chrono::{DateTime, Utc};
 use feed_rs::parser;
 use futures::stream::{self, StreamExt};
@@ -39,7 +39,7 @@ pub async fn fetch_agencies_with_progress(
         .unwrap();
     let targets = agencies()
         .into_iter()
-        .filter(|a| selected.is_empty() || selected.contains(&a.short_name))
+        .filter(|a| selected.contains(&a.short_name))
         .collect::<Vec<_>>();
     let results = stream::iter(targets)
         .map(|agency| {
@@ -50,48 +50,78 @@ pub async fn fetch_agencies_with_progress(
                 let mut items = vec![];
                 let mut warnings = vec![];
                 let mut successes = 0usize;
-                for source in &agency.feeds {
-                    match client
-                        .get(source)
-                        .send()
-                        .await
-                        .and_then(|r| r.error_for_status())
-                    {
+                if let Some(slug) = agency.short_name.strip_prefix("govuk:") {
+                    match fetch_govuk_search(&client, &agency, slug, since, until).await {
+                        Ok((mut found, warning)) => {
+                            successes += 1;
+                            items.append(&mut found);
+                            if let Some(warning) = warning {
+                                warnings.push(format!("{} {warning}", agency.short_name));
+                            }
+                        }
+                        Err(error) => {
+                            warnings.push(format!("{} GOV.UK 搜尋失敗：{error}", agency.short_name))
+                        }
+                    }
+                } else {
+                    for source in &agency.feeds {
+                        match client
+                            .get(source)
+                            .send()
+                            .await
+                            .and_then(|r| r.error_for_status())
+                        {
                         Ok(r) => match r.bytes().await {
-                            Ok(b) => match parse_feed_document(&b, &agency, source, since, until) {
-                                Ok(mut x) => {
-                                    successes += 1;
-                                    items.append(&mut x)
+                            Ok(b) => {
+                                if agency.short_name.starts_with("court-") {
+                                    match parser::parse(&b[..]) {
+                                        Ok(feed) => {
+                                            let oldest = feed.entries.iter().filter_map(|entry| entry.published.or(entry.updated)).min();
+                                            if oldest.is_some_and(|date| date > since) {
+                                                warnings.push(format!("{} 官方 RSS 最舊資料晚於查詢起日，期間可能不完整", agency.short_name));
+                                            }
+                                        }
+                                        Err(error) => warnings.push(format!("{} RSS 覆蓋檢查失敗：{error}", agency.short_name)),
+                                    }
+                                }
+                                match parse_feed_document(&b, &agency, source, since, until) {
+                                        Ok(mut x) => {
+                                            successes += 1;
+                                            items.append(&mut x)
+                                        }
+                                        Err(e) => warnings.push(format!(
+                                            "{} RSS 解析失敗：{}",
+                                            agency.short_name, e
+                                        )),
+                                    }
                                 }
                                 Err(e) => warnings
-                                    .push(format!("{} RSS 解析失敗：{}", agency.short_name, e)),
+                                    .push(format!("{} RSS 讀取失敗：{}", agency.short_name, e)),
                             },
                             Err(e) => {
                                 warnings.push(format!("{} RSS 讀取失敗：{}", agency.short_name, e))
                             }
-                        },
-                        Err(e) => {
-                            warnings.push(format!("{} RSS 讀取失敗：{}", agency.short_name, e))
                         }
                     }
-                }
-                for source in agency.news_pages.iter().chain(agency.official_pages.iter()) {
-                    match client
-                        .get(source)
-                        .send()
-                        .await
-                        .and_then(|r| r.error_for_status())
-                    {
-                        Ok(r) => match r.text().await {
-                            Ok(t) => {
-                                successes += 1;
-                                items.extend(parse_official_html(&t, &agency, source, since, until))
-                            }
+                    for source in agency.news_pages.iter().chain(agency.official_pages.iter()) {
+                        match client
+                            .get(source)
+                            .send()
+                            .await
+                            .and_then(|r| r.error_for_status())
+                        {
+                            Ok(r) => match r.text().await {
+                                Ok(t) => {
+                                    successes += 1;
+                                    items.extend(parse_official_html(
+                                        &t, &agency, source, since, until,
+                                    ))
+                                }
+                                Err(e) => warnings
+                                    .push(format!("{} 官方頁讀取失敗：{}", agency.short_name, e)),
+                            },
                             Err(e) => warnings
                                 .push(format!("{} 官方頁讀取失敗：{}", agency.short_name, e)),
-                        },
-                        Err(e) => {
-                            warnings.push(format!("{} 官方頁讀取失敗：{}", agency.short_name, e))
                         }
                     }
                 }
@@ -157,6 +187,165 @@ pub async fn fetch_agencies_with_progress(
         health,
         warnings,
     }
+}
+
+async fn fetch_govuk_search(
+    client: &reqwest::Client,
+    agency: &Agency,
+    slug: &str,
+    since: DateTime<Utc>,
+    until: DateTime<Utc>,
+) -> Result<(Vec<NewsItem>, Option<String>), String> {
+    let mut items = Vec::new();
+    let mut start = 0usize;
+    for _ in 0..50 {
+        let date_filter = format!("from:{},to:{}", since.date_naive(), until.date_naive());
+        let query = [
+            ("filter_organisations", slug.to_string()),
+            ("filter_public_timestamp", date_filter),
+            (
+                "fields",
+                "title,link,description,public_timestamp,format".into(),
+            ),
+            ("order", "-public_timestamp".into()),
+            ("count", "100".into()),
+            ("start", start.to_string()),
+        ];
+        let response = client
+            .get("https://www.gov.uk/api/search.json")
+            .query(&query)
+            .send()
+            .await
+            .and_then(|value| value.error_for_status())
+            .map_err(|error| error.to_string());
+        let response = match response {
+            Ok(response) => response,
+            Err(error) if !items.is_empty() => {
+                return Ok((
+                    crate::parse::dedupe(items),
+                    Some(format!("搜尋分頁中斷，已保留取得的資料：{error}")),
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        let source_url = response.url().to_string();
+        let payload: Value = match response.json().await {
+            Ok(payload) => payload,
+            Err(error) if !items.is_empty() => {
+                return Ok((
+                    crate::parse::dedupe(items),
+                    Some(format!("搜尋分頁格式異常，已保留取得的資料：{error}")),
+                ));
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        let Some(results) = payload.get("results").and_then(Value::as_array) else {
+            if !items.is_empty() {
+                return Ok((
+                    crate::parse::dedupe(items),
+                    Some("搜尋分頁缺少 results，已保留取得的資料".into()),
+                ));
+            }
+            return Err("GOV.UK 搜尋缺少 results".into());
+        };
+        for value in results {
+            let Some(path) = value.get("link").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(raw_date) = value.get("public_timestamp").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(published_at) = DateTime::parse_from_rfc3339(raw_date) else {
+                continue;
+            };
+            let published_at = published_at.with_timezone(&Utc);
+            if published_at < since || published_at >= until {
+                continue;
+            }
+            let link = if path.starts_with("https://") {
+                path.to_string()
+            } else {
+                format!("https://www.gov.uk{path}")
+            };
+            let document_format = value
+                .get("format")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_lowercase();
+            let is_decision = is_decision_format(&document_format);
+            let allowed_path = agency
+                .link_include_patterns
+                .iter()
+                .any(|pattern| link.contains(pattern));
+            let official_decision = is_decision && is_govuk_host(&link);
+            if !allowed_path && !official_decision {
+                continue;
+            }
+            let title = value
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if title.is_empty() {
+                continue;
+            }
+            let summary = value
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            items.push(NewsItem {
+                agency: agency.display_name(),
+                agency_en: agency.name_en.clone(),
+                unit_category: Some(agency.short_name.clone()),
+                title: title.into(),
+                link: link.clone(),
+                published_at,
+                summary: summary.into(),
+                source_feed: source_url.clone(),
+                matched_topics: vec![],
+                matched_keywords: vec![],
+                title_matched_keywords: vec![],
+                summary_matched_keywords: vec![],
+                core_matched_keywords: vec![],
+                general_matched_keywords: vec![],
+                supporting_matched_keywords: vec![],
+                title_keyword_strengths: Default::default(),
+                summary_keyword_strengths: Default::default(),
+                relevance_score: 0,
+                relevance_level: String::new(),
+                content_type: if is_decision {
+                    ContentType::Judgment
+                } else {
+                    content_type_for_link(&link, title, "")
+                },
+            });
+        }
+        start += results.len();
+        if results.is_empty()
+            || start
+                >= payload
+                    .get("total")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(start as u64) as usize
+        {
+            return Ok((crate::parse::dedupe(items), None));
+        }
+    }
+    Ok((
+        crate::parse::dedupe(items),
+        Some("搜尋結果超過 5000 筆，請縮短期間".into()),
+    ))
+}
+
+fn is_govuk_host(link: &str) -> bool {
+    url::Url::parse(link)
+        .ok()
+        .and_then(|value| value.host_str().map(str::to_owned))
+        .is_some_and(|host| host == "www.gov.uk" || host == "gov.uk")
+}
+
+fn is_decision_format(value: &str) -> bool {
+    value.contains("decision") || value.contains("judgment")
 }
 
 async fn fetch_parliament_api(
@@ -807,4 +996,28 @@ fn dedupe_parliament(mut items: Vec<ParliamentBriefing>) -> Vec<ParliamentBriefi
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn empty_selection_does_not_fetch_entire_catalog() {
+        let now = Utc::now();
+        let result = fetch_agencies(now, now, 6, &[]).await;
+        assert!(result.items.is_empty());
+        assert!(result.health.is_empty());
+    }
+
+    #[test]
+    fn tribunal_decision_paths_are_eligible_only_on_govuk() {
+        assert!(is_decision_format("utaac_decision"));
+        assert!(is_govuk_host(
+            "https://www.gov.uk/administrative-appeals-tribunal-decisions/test"
+        ));
+        assert!(!is_govuk_host(
+            "https://elsewhere.example/administrative-appeals-tribunal-decisions/test"
+        ));
+    }
 }

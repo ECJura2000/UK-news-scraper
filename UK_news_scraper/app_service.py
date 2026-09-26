@@ -133,6 +133,7 @@ def execute_run(
                 since,
                 max_workers=request.workers,
                 agencies=selected_agencies,
+                until=until,
             )
             parliament_future = (
                 executor.submit(fetch_parliament_briefings, since)

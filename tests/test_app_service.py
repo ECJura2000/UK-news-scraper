@@ -55,7 +55,7 @@ def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp
     )
     monkeypatch.setattr(
         "UK_news_scraper.app_service.fetch_all_with_status",
-        lambda since, max_workers, agencies: fetch_result,
+        lambda since, max_workers, agencies, until=None: fetch_result,
     )
 
     def fake_export(all_items, filtered_items, output, **kwargs):
@@ -178,7 +178,7 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
     )
     monkeypatch.setattr(
         "UK_news_scraper.app_service.fetch_all_with_status",
-        lambda since, max_workers, agencies: FetchAllResult(
+        lambda since, max_workers, agencies, until=None: FetchAllResult(
         items=[new_bist],
             statuses=[
                 AgencyFetchStatus(

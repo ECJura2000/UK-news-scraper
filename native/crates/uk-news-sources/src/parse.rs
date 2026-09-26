@@ -20,7 +20,12 @@ pub fn content_type_for_link(link: &str, title: &str, context: &str) -> ContentT
         .ok()
         .map(|value| value.path().to_lowercase())
         .unwrap_or_default();
-    if path.contains("/guidance/") || path.contains("/collection/") || text.contains("guidance") {
+    if path.contains("/judgment") || path.contains("/judicial-decision") {
+        ContentType::Judgment
+    } else if path.contains("/guidance/")
+        || path.contains("/collection/")
+        || text.contains("guidance")
+    {
         ContentType::Guidance
     } else if path.contains("/report")
         || path.contains("/research/")
@@ -124,7 +129,11 @@ pub fn parse_feed_document(
             summary_keyword_strengths: Default::default(),
             relevance_score: 0,
             relevance_level: String::new(),
-            content_type: content_type_for_link(&link, &title, ""),
+            content_type: if agency.short_name.ends_with(":judgments") {
+                ContentType::Judgment
+            } else {
+                content_type_for_link(&link, &title, "")
+            },
         });
     }
     Ok(out)
@@ -369,7 +378,18 @@ fn news(
 pub fn dedupe(items: Vec<NewsItem>) -> Vec<NewsItem> {
     let mut seen = std::collections::HashSet::new();
     let mut items = items;
-    items.sort_by_key(|item| std::cmp::Reverse(item.published_at));
+    items.sort_by(|a, b| {
+        b.published_at
+            .cmp(&a.published_at)
+            .then_with(|| {
+                a.unit_category
+                    .as_deref()
+                    .unwrap_or(&a.agency)
+                    .cmp(b.unit_category.as_deref().unwrap_or(&b.agency))
+            })
+            .then_with(|| a.link.cmp(&b.link))
+            .then_with(|| a.title.cmp(&b.title))
+    });
     items
         .into_iter()
         .filter(|x| {
@@ -488,5 +508,34 @@ mod tests {
             until,
         )
         .is_empty());
+    }
+
+    #[test]
+    fn shared_link_uses_stable_source_order() {
+        let agency = Agency {
+            name_zh: "Alpha".into(),
+            name_en: "Alpha".into(),
+            short_name: "govuk:alpha".into(),
+            homepage: "https://www.gov.uk/".into(),
+            feeds: vec![],
+            news_pages: vec![],
+            topics: vec![],
+            link_include_patterns: vec![],
+            official_pages: vec![],
+        };
+        let xml = r#"<feed xmlns="http://www.w3.org/2005/Atom"><title>Test</title><id>test</id><updated>2026-07-28T00:00:00Z</updated><entry><title>Shared</title><id>one</id><updated>2026-07-28T00:00:00Z</updated><link href="https://www.gov.uk/government/news/shared"/></entry></feed>"#;
+        let since = Utc.with_ymd_and_hms(2026, 7, 28, 0, 0, 0).unwrap();
+        let until = Utc.with_ymd_and_hms(2026, 7, 29, 0, 0, 0).unwrap();
+        let alpha = parse_feed_document(xml.as_bytes(), &agency, "test", since, until)
+            .unwrap()
+            .remove(0);
+        let mut beta = alpha.clone();
+        beta.agency = "Beta".into();
+        beta.unit_category = Some("govuk:beta".into());
+        assert_eq!(
+            dedupe(vec![beta.clone(), alpha.clone()])[0].agency,
+            agency.display_name()
+        );
+        assert_eq!(dedupe(vec![alpha, beta])[0].agency, agency.display_name());
     }
 }

@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 import re
 from typing import Any
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -12,7 +12,7 @@ from ...config import (
     AGENCIES,
     DEFAULT_MAX_WORKERS,
 )
-from ...http.async_client import get_text
+from ...http.async_client import get_json, get_text
 from ...errors import DownloadError, UKNewsError
 from ...models import Agency, NewsItem, ParliamentBriefing
 from ...profiles import FilterProfile
@@ -59,12 +59,15 @@ OFCOM_GOOGLE_NEWS_QUERIES = (
 
 
 class AgencyFeedScraper(Scraper):
-    def __init__(self, agency: Agency) -> None:
+    def __init__(self, agency: Agency, until: datetime | None = None) -> None:
         self.agency = agency
+        self.until = until
         self.source_warnings: list[str] = []
 
     def fetch(self, since: datetime) -> list[NewsItem]:
         self.source_warnings = []
+        if self.agency.short_name.startswith("govuk:"):
+            return self._fetch_govuk_search(since)
         if self.agency.short_name == "NPSA":
             official_items, _, _ = self._fetch_official_pages(since)
             if official_items:
@@ -94,6 +97,12 @@ class AgencyFeedScraper(Scraper):
                 self.source_warnings.append(f"{self.agency.short_name} RSS/Atom 讀取失敗：{feed_url}")
                 continue
             successful_sources += 1
+            if self.agency.short_name.startswith("court-"):
+                dates = [value for entry in feed.entries if (value := parse_feed_datetime(entry))]
+                if dates and min(dates) > since:
+                    self.source_warnings.append(
+                        f"{self.agency.short_name} 官方 RSS 最舊資料晚於查詢起日，期間可能不完整"
+                    )
 
             for entry in feed.entries:
                 try:
@@ -136,6 +145,73 @@ class AgencyFeedScraper(Scraper):
 
         return dedupe_items(items)
 
+    def _fetch_govuk_search(self, since: datetime) -> list[NewsItem]:
+        """Use GOV.UK's organisation/date search, paging beyond the Atom window."""
+        slug = self.agency.short_name.removeprefix("govuk:")
+        items: list[NewsItem] = []
+        start = 0
+        for _ in range(50):
+            query = urlencode({
+                "filter_organisations": slug,
+                "filter_public_timestamp": (
+                    f"from:{since.date().isoformat()},to:{self.until.date().isoformat()}"
+                    if self.until else f"from:{since.date().isoformat()}"
+                ),
+                "fields": "title,link,description,public_timestamp,format",
+                "order": "-public_timestamp",
+                "count": 100,
+                "start": start,
+            })
+            url = f"https://www.gov.uk/api/search.json?{query}"
+            try:
+                payload = get_json(url)
+            except Exception as exc:
+                if items:
+                    self.source_warnings.append(f"{self.agency.short_name} 搜尋分頁中斷，已保留取得的資料")
+                    return dedupe_items(items)
+                raise DownloadError(f"GOV.UK 搜尋失敗：{slug}") from exc
+            results = payload.get("results", [])
+            if not isinstance(results, list):
+                if items:
+                    self.source_warnings.append(f"{self.agency.short_name} 搜尋分頁格式異常，已保留取得的資料")
+                    return dedupe_items(items)
+                raise DownloadError(f"GOV.UK 搜尋格式錯誤：{slug}")
+            for value in results:
+                link = urljoin("https://www.gov.uk", str(value.get("link", "")))
+                document_format = str(value.get("format", "")).casefold()
+                is_decision = "decision" in document_format or "judgment" in document_format
+                timestamp = str(value.get("public_timestamp", ""))
+                if not (
+                    self._is_allowed_link(link)
+                    or (is_decision and urlparse(link).hostname in {"gov.uk", "www.gov.uk"})
+                ) or not timestamp:
+                    continue
+                try:
+                    published_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if published_at < since:
+                    continue
+                title = clean_text(str(value.get("title", "")))
+                if not title:
+                    continue
+                items.append(NewsItem(
+                    agency=self.agency.display_name,
+                    agency_en=self.agency.name_en,
+                    unit_category=self.agency.short_name,
+                    title=title,
+                    link=link,
+                    published_at=published_at,
+                    summary=clean_text(str(value.get("description", ""))),
+                    source_feed=url,
+                    content_type="judgment" if is_decision else _content_type_for_link(link, title),
+                ))
+            start += len(results)
+            if not results or start >= int(payload.get("total", start)):
+                return dedupe_items(items)
+        self.source_warnings.append(f"{self.agency.short_name} 搜尋結果超過 5000 筆，請縮短期間")
+        return dedupe_items(items)
+
     def _entry_to_news_item(self, entry: Any, feed_url: str, since: datetime) -> NewsItem | None:
         published_at = parse_feed_datetime(entry)
         if not published_at or published_at < since:
@@ -158,7 +234,7 @@ class AgencyFeedScraper(Scraper):
             published_at=published_at,
             summary=summary,
             source_feed=feed_url,
-            content_type=_content_type_for_link(link, title),
+            content_type="judgment" if self.agency.short_name.endswith(":judgments") else _content_type_for_link(link, title),
         )
 
     def _is_allowed_link(self, link: str) -> bool:
@@ -563,6 +639,8 @@ def _summary_from_html(node: Any) -> str:
 def _content_type_for_link(link: str, title: str = "", context: str = "") -> str:
     value = " ".join((link, title, context)).casefold()
     path = urlparse(link).path.casefold()
+    if "/judgment" in path or "/judicial-decision" in path:
+        return "judgment"
     if "/guidance/" in path or "/collection/" in path or "guidance" in value:
         return "guidance"
     if "/report" in path or "/research/" in path or "report" in value or "research" in value:
@@ -572,8 +650,8 @@ def _content_type_for_link(link: str, title: str = "", context: str = "") -> str
     return "news"
 
 
-def build_scrapers(agencies: tuple[Agency, ...] = AGENCIES) -> list[AgencyFeedScraper]:
-    return [AgencyFeedScraper(agency) for agency in agencies]
+def build_scrapers(agencies: tuple[Agency, ...] = AGENCIES, until: datetime | None = None) -> list[AgencyFeedScraper]:
+    return [AgencyFeedScraper(agency, until) for agency in agencies]
 
 
 def apply_topic_filter(
@@ -594,6 +672,7 @@ def fetch_all_with_status(
     since: datetime,
     max_workers: int = DEFAULT_MAX_WORKERS,
     agencies: tuple[Agency, ...] | None = None,
+    until: datetime | None = None,
 ) -> FetchAllResult:
     from .orchestration import fetch_all_with_status as orchestrated_fetch_all_with_status
 
@@ -601,6 +680,7 @@ def fetch_all_with_status(
         since,
         max_workers=max_workers,
         agencies=agencies,
+        until=until,
     )
 
 

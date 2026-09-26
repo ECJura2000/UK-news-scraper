@@ -413,3 +413,9 @@ AGENCIES: tuple[Agency, ...] = (
         topics=("半導體/量子技術",),
     ),
 )
+
+# New sources are opt-in. The built-in weekly profile explicitly retains the
+# original 13 sources in profiles.py.
+from .source_catalog import searchable_agencies  # noqa: E402
+
+AGENCIES += searchable_agencies()

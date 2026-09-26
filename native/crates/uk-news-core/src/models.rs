@@ -26,6 +26,7 @@ pub enum ContentType {
     Guidance,
     Report,
     Publication,
+    Judgment,
 }
 
 impl std::fmt::Display for ContentType {
@@ -35,6 +36,7 @@ impl std::fmt::Display for ContentType {
             Self::Guidance => "guidance",
             Self::Report => "report",
             Self::Publication => "publication",
+            Self::Judgment => "judgment",
         })
     }
 }

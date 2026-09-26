@@ -25,7 +25,7 @@ fn gov(name_zh: &str, name_en: &str, short: &str, slug: &str, topics: &[&str]) -
     }
 }
 
-pub fn agencies() -> Vec<Agency> {
+pub fn legacy_agencies() -> Vec<Agency> {
     vec![
     gov("商業、創新、科學及貿易部","Department for Business, Innovation, Science and Trade","BIST","department-for-business-innovation-science-and-trade",&["Science & Technology","AI","半導體/量子技術"]),
     gov("數位、文化、媒體及體育部","Department for Digital, Culture, Media and Sport","DCMS","department-for-culture-media-and-sport",&["資料治理/隱私/數位身份","數位平台","網路安全/資安"]),
@@ -43,6 +43,12 @@ pub fn agencies() -> Vec<Agency> {
 ]
 }
 
+pub fn agencies() -> Vec<Agency> {
+    let mut values = legacy_agencies();
+    values.extend(crate::catalog::searchable_agencies());
+    values
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,7 +56,7 @@ mod tests {
     #[test]
     fn registry_contains_split_dsit_successors() {
         let values = agencies();
-        assert_eq!(values.len(), 13);
+        assert!(values.len() > 300);
         assert!(values.iter().any(|agency| agency.short_name == "BIST"));
         assert!(values.iter().any(|agency| agency.short_name == "DCMS"));
         assert!(!values.iter().any(|agency| agency.short_name == "DSIT"));
@@ -68,5 +74,24 @@ mod tests {
             .find(|agency| agency.short_name == "NCSC")
             .unwrap();
         assert_eq!(ncsc.official_pages.len(), 5);
+    }
+
+    #[test]
+    fn catalog_sources_are_selectable_only_with_verified_adapters() {
+        let entries = crate::catalog::catalog_entries();
+        let runnable = agencies();
+        assert!(entries.len() > 1100);
+        assert!(runnable
+            .iter()
+            .any(|agency| agency.short_name == "court-scotland:judgments"));
+        assert!(runnable
+            .iter()
+            .any(|agency| agency.short_name.starts_with("govuk:")));
+        assert!(!runnable
+            .iter()
+            .any(|agency| agency.short_name == "govuk:bbc"));
+        assert!(!runnable
+            .iter()
+            .any(|agency| agency.short_name == "court-ew:administrative-divisional-court"));
     }
 }

@@ -99,7 +99,11 @@ def default_profile() -> FilterProfile:
         )
         for rule in TOPIC_RULES
     )
-    sources = tuple(agency.short_name for agency in AGENCIES) + (PARLIAMENT_SOURCE_ID,)
+    sources = (
+        "BIST", "DCMS", "AISI", "ICO", "CMA", "UK IPO", "GDS",
+        "Ofcom", "NCSC", "Electoral Commission", "Cabinet Office", "NPSA",
+        "UKRI", PARLIAMENT_SOURCE_ID,
+    )
     return FilterProfile(
         profile_id=DEFAULT_PROFILE_ID,
         name="UK 科技法制",

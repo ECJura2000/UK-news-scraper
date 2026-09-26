@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0 - 2026-09-25
+
+- Added a reviewable directory snapshot for UK central and devolved bodies, courts and tribunals. GOV.UK organisations marked live and three official judicial RSS feeds can be selected in custom JSON profiles; unverified publication pages remain visible but cannot be selected.
+- Kept the built-in weekly source selection unchanged, added jurisdiction search in the desktop app, and tagged judgment records distinctly in Excel and previews.
+- Excluded BBC scraping and bulk TNA Find Case Law queries. Bounded GOV.UK historical searches, retained partial pages as degraded, and checked judicial RSS date coverage. Added catalog refresh and regression checks shared by Python and Rust.
+
 ## 2.2.2 - 2026-09-24
 
 - Set English text in exported Excel workbooks and the desktop interface to Times New Roman, and Chinese text to the platform's 標楷體 family.

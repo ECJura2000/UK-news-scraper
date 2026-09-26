@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from time import monotonic, sleep
 
-from ...config import DEFAULT_MAX_WORKERS
+from ...config import AGENCIES, DEFAULT_MAX_WORKERS
 from ...errors import UKNewsError, is_retryable_error
 from ...models import Agency
 from .registry import build_scrapers, dedupe_items
@@ -16,10 +16,14 @@ def fetch_all_with_status(
     since: datetime,
     max_workers: int = DEFAULT_MAX_WORKERS,
     agencies: tuple[Agency, ...] | None = None,
+    until: datetime | None = None,
 ) -> FetchAllResult:
     all_items = []
     statuses = []
-    scrapers = build_scrapers() if agencies is None else build_scrapers(agencies)
+    if until is None:
+        scrapers = build_scrapers() if agencies is None else build_scrapers(agencies)
+    else:
+        scrapers = build_scrapers(AGENCIES if agencies is None else agencies, until=until)
     if not scrapers:
         return FetchAllResult(items=[], statuses=[])
     workers = max(1, min(max_workers, len(scrapers)))
@@ -38,8 +42,9 @@ def fetch_all_with_status(
                 else:
                     statuses.append(_failed_status(scraper, str(exc), duration, attempts=1))
                 continue
-            statuses.append(_success_status(scraper, items, since, duration, attempts=1))
-            all_items.extend(items)
+            selected_items = [item for item in items if until is None or item.published_at < until]
+            statuses.append(_success_status(scraper, selected_items, since, duration, attempts=1))
+            all_items.extend(selected_items)
 
     if failed_scrapers:
         sleep(RETRY_DELAY_SECONDS)
@@ -56,8 +61,9 @@ def fetch_all_with_status(
                 except (UKNewsError, OSError, ValueError, KeyError, TypeError) as exc:
                     statuses.append(_failed_status(scraper, f"首次：{first_error}；重試：{exc}", duration, attempts=2))
                     continue
-                statuses.append(_success_status(scraper, items, since, duration, attempts=2))
-                all_items.extend(items)
+                selected_items = [item for item in items if until is None or item.published_at < until]
+                statuses.append(_success_status(scraper, selected_items, since, duration, attempts=2))
+                all_items.extend(selected_items)
     return FetchAllResult(items=dedupe_items(all_items), statuses=statuses)
 
 

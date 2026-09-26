@@ -364,7 +364,7 @@ async fn finalize(
         RunStatus::Degraded
     };
     let fingerprint = make_data_fingerprint(&agencies.items, &parliament.items);
-    let run_id = format!("uk-news-{}_{}", options.since, options.until);
+    let run_id = run_id_for(options.since, options.until, &options.profile.profile_id);
     let summary = RunSummary {
         run_id: run_id.clone(),
         generated_at: Utc::now().to_rfc3339(),
@@ -405,6 +405,15 @@ fn is_organisation_homepage(link: &str) -> bool {
     };
     let parts = url.path().trim_matches('/').split('/').collect::<Vec<_>>();
     parts.len() == 3 && parts[0] == "government" && parts[1] == "organisations"
+}
+
+fn run_id_for(since: NaiveDate, until: NaiveDate, profile_id: &str) -> String {
+    let mut value = format!("uk-news-{since}_{until}");
+    if profile_id != "uk-tech-law" {
+        value.push('-');
+        value.push_str(profile_id);
+    }
+    value
 }
 
 fn absolute_output(path: &Path) -> Result<PathBuf> {
@@ -531,6 +540,19 @@ mod tests {
         assert!(absolute_output(Path::new("report.xlsx"))
             .unwrap()
             .is_absolute());
+    }
+
+    #[test]
+    fn custom_profile_run_id_matches_python_delivery_key() {
+        let date = NaiveDate::from_ymd_opt(2026, 9, 23).unwrap();
+        assert_eq!(
+            run_id_for(date, date, "uk-tech-law"),
+            "uk-news-2026-09-23_2026-09-23"
+        );
+        assert_eq!(
+            run_id_for(date, date, "catalog-smoke"),
+            "uk-news-2026-09-23_2026-09-23-catalog-smoke"
+        );
     }
 
     #[test]

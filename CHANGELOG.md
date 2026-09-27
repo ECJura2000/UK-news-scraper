@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.1 - 2026-09-27
 
 - Evaluate source success rate, zero-result ratio and source p95 on every run; persist the diagnostic result in `.run.json` while keeping a legitimately quiet source distinct from a parsing failure.
 - Detect in-period RSS, GOV.UK Search and dated official-page candidates that yield no parsed records. Keep fetched records and mark the affected source degraded.

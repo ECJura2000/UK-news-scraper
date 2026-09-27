@@ -15,6 +15,32 @@ COUNT_FIELDS = (
 )
 
 
+def _source_contract(summary: dict) -> list[dict]:
+    return sorted(
+        (
+            {
+                "source": source.get("source"),
+                "success": source.get("success"),
+            }
+            for source in summary.get("source_health", ())
+        ),
+        key=lambda source: source["source"] or "",
+    )
+
+
+def _record_contract(summary: dict) -> list[dict]:
+    return sorted(
+        (
+            {
+                key: record.get(key) or ""
+                for key in ("record_type", "source_id", "canonical_url", "source_feed", "parser_version")
+            }
+            for record in summary.get("record_provenance", ())
+        ),
+        key=lambda record: tuple(record.values()),
+    )
+
+
 def compare(python_summary: dict, rust_summary: dict) -> dict:
     fields = {
         field: {
@@ -30,6 +56,31 @@ def compare(python_summary: dict, rust_summary: dict) -> dict:
         "match": python_summary.get("data_fingerprint")
         == rust_summary.get("data_fingerprint"),
     }
+    for field in ("status", "delivery_id", "profile_hash"):
+        if field in python_summary or field in rust_summary:
+            fields[field] = {
+                "python": python_summary.get(field),
+                "rust": rust_summary.get(field),
+                "match": python_summary.get(field) == rust_summary.get(field),
+            }
+    for field, normalize in (("source_health", _source_contract), ("record_provenance", _record_contract)):
+        if field in python_summary or field in rust_summary:
+            python_value = normalize(python_summary)
+            rust_value = normalize(rust_summary)
+            fields[field] = {
+                "python": python_value,
+                "rust": rust_value,
+                "match": python_value == rust_value and field in python_summary and field in rust_summary,
+            }
+    if "observability" in python_summary or "observability" in rust_summary:
+        keys = ("source_count", "source_success_rate")
+        python_value = {key: python_summary.get("observability", {}).get(key) for key in keys}
+        rust_value = {key: rust_summary.get("observability", {}).get(key) for key in keys}
+        fields["observability"] = {
+            "python": python_value,
+            "rust": rust_value,
+            "match": python_value == rust_value and "observability" in python_summary and "observability" in rust_summary,
+        }
     return {
         "compared_at": datetime.now(timezone.utc).isoformat(),
         "period_start": python_summary.get("period_start"),

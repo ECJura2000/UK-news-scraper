@@ -45,3 +45,9 @@ Each agency and Parliament source emits independent health state. A supplemental
 failure retains successful RSS data and marks the run degraded. Delivery remains gated by
 the atomic claim, explicit Gmail success, and complete transition described in
 `docs/adr/0001-idempotent-delivery-and-retry-policy.md`.
+
+HTTP clients share a two-request-per-host limit within a run and a 50-second network
+deadline. Source health includes endpoint response evidence and parser candidate counts.
+The run summary records source success, zero-item ratio, p95 duration, and additive
+record provenance. These fields are diagnostic and are omitted from fingerprint v3;
+only a verified parser anomaly or unhealthy required source changes run status.

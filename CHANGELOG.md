@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Evaluate source success rate, zero-result ratio and source p95 on every run; persist the diagnostic result in `.run.json` while keeping a legitimately quiet source distinct from a parsing failure.
+- Detect in-period RSS, GOV.UK Search and dated official-page candidates that yield no parsed records. Keep fetched records and mark the affected source degraded.
+- Limit simultaneous requests to two per host, honor bounded `Retry-After`, and stop new network requests after the 50-second fetch budget so the report can retain partial results.
+- Add per-endpoint HTTP status, response hash, ETag, Last-Modified and fetch time to source health; add per-record canonical URL, source ID, feed and parser version to the run summary without changing fingerprint v3 or delivery IDs.
+- Extend the Python/Rust comparison gate to check status, per-source success, source success rate and record provenance alongside logical counts and fingerprint. Add shared parser and health fixtures, and prevent date-only HTML from overriding a precise out-of-period RSS timestamp.
+
 ## 2.3.0 - 2026-09-25
 
 - Added a reviewable directory snapshot for UK central and devolved bodies, courts and tribunals. GOV.UK organisations marked live and three official judicial RSS feeds can be selected in custom JSON profiles; unverified publication pages remain visible but cannot be selected.

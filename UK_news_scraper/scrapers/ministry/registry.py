@@ -5,12 +5,14 @@ import json
 import re
 from typing import Any
 from urllib.parse import quote, urlencode, urljoin, urlparse
+from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
 
 from ...config import (
     AGENCIES,
     DEFAULT_MAX_WORKERS,
+    DEFAULT_TIMEZONE,
 )
 from ...http.async_client import get_json, get_text
 from ...errors import DownloadError, UKNewsError
@@ -63,9 +65,11 @@ class AgencyFeedScraper(Scraper):
         self.agency = agency
         self.until = until
         self.source_warnings: list[str] = []
+        self.candidate_count = 0
 
     def fetch(self, since: datetime) -> list[NewsItem]:
         self.source_warnings = []
+        self.candidate_count = 0
         if self.agency.short_name.startswith("govuk:"):
             return self._fetch_govuk_search(since)
         if self.agency.short_name == "NPSA":
@@ -97,6 +101,8 @@ class AgencyFeedScraper(Scraper):
                 self.source_warnings.append(f"{self.agency.short_name} RSS/Atom 讀取失敗：{feed_url}")
                 continue
             successful_sources += 1
+            feed_candidates = 0
+            feed_parsed = 0
             if self.agency.short_name.startswith("court-"):
                 dates = [value for entry in feed.entries if (value := parse_feed_datetime(entry))]
                 if dates and min(dates) > since:
@@ -105,13 +111,25 @@ class AgencyFeedScraper(Scraper):
                     )
 
             for entry in feed.entries:
+                entry_date = parse_feed_datetime(entry)
+                entry_link = getattr(entry, "link", "")
+                if (entry_date is None or (entry_date >= since and (self.until is None or entry_date < self.until))) and (
+                    not entry_link or self._is_allowed_link(entry_link)
+                ):
+                    feed_candidates += 1
                 try:
                     item = self._entry_to_news_item(entry, feed_url, since)
                 except (UKNewsError, OSError, ValueError, KeyError, TypeError) as exc:
                     print(f"[warn] 單筆 RSS 解析失敗：{self.agency.short_name} {feed_url} ({exc})")
                     continue
                 if item:
+                    feed_parsed += 1
                     feed_items.append(item)
+            self.candidate_count += feed_candidates
+            if feed_candidates and not feed_parsed:
+                self.source_warnings.append(
+                    f"{self.agency.short_name} RSS 有候選資料但解析為零筆：{feed_url}"
+                )
 
         if not feed_items and self.agency.news_pages:
             html_items, html_attempted, html_successful = self._fetch_html_news_pages(since)
@@ -177,6 +195,9 @@ class AgencyFeedScraper(Scraper):
                     return dedupe_items(items)
                 raise DownloadError(f"GOV.UK 搜尋格式錯誤：{slug}")
             for value in results:
+                if not value.get("link"):
+                    self.source_warnings.append(f"{self.agency.short_name} GOV.UK 搜尋資料缺少連結")
+                    continue
                 link = urljoin("https://www.gov.uk", str(value.get("link", "")))
                 document_format = str(value.get("format", "")).casefold()
                 is_decision = "decision" in document_format or "judgment" in document_format
@@ -184,16 +205,24 @@ class AgencyFeedScraper(Scraper):
                 if not (
                     self._is_allowed_link(link)
                     or (is_decision and urlparse(link).hostname in {"gov.uk", "www.gov.uk"})
-                ) or not timestamp:
+                ):
+                    continue
+                if not timestamp:
+                    self.source_warnings.append(f"{self.agency.short_name} GOV.UK 搜尋資料缺少發布日期")
                     continue
                 try:
                     published_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                 except ValueError:
+                    self.source_warnings.append(f"{self.agency.short_name} GOV.UK 搜尋日期格式異常")
                     continue
                 if published_at < since:
                     continue
+                if self.until is not None and published_at >= self.until:
+                    continue
+                self.candidate_count += 1
                 title = clean_text(str(value.get("title", "")))
                 if not title:
+                    self.source_warnings.append(f"{self.agency.short_name} GOV.UK 搜尋資料缺少標題")
                     continue
                 items.append(NewsItem(
                     agency=self.agency.display_name,
@@ -263,9 +292,13 @@ class AgencyFeedScraper(Scraper):
             successful_sources += 1
             page_items = self._extract_html_news_items(soup, page_url, since)
             if page_items is not None:
+                if not page_items and _page_has_in_range_date(soup, since, self.until):
+                    self.candidate_count += 1
+                    self.source_warnings.append(f"{self.agency.short_name} 新聞頁有期間內日期但解析為零筆：{page_url}")
                 items.extend(page_items)
                 continue
 
+            before_count = len(items)
             for anchor in soup.find_all("a", href=True):
                 title = clean_text(anchor.get_text(" ", strip=True))
                 if len(title) < 12:
@@ -295,6 +328,9 @@ class AgencyFeedScraper(Scraper):
                         source_feed=page_url,
                     )
                 )
+            if len(items) == before_count and _page_has_in_range_date(soup, since, self.until):
+                self.candidate_count += 1
+                self.source_warnings.append(f"{self.agency.short_name} 新聞頁有期間內日期但解析為零筆：{page_url}")
         return dedupe_items(items), attempted_sources, successful_sources
 
     def _fetch_official_pages(self, since: datetime) -> tuple[list[NewsItem], int, int]:
@@ -311,6 +347,9 @@ class AgencyFeedScraper(Scraper):
                 self.source_warnings.append(f"{self.agency.short_name} 官方補充頁讀取失敗：{page_url}")
                 continue
             successful_sources += 1
+            if not page_items and _page_has_in_range_date(soup, since, self.until):
+                self.candidate_count += 1
+                self.source_warnings.append(f"{self.agency.short_name} 官方頁有期間內日期但解析為零筆：{page_url}")
             items.extend(page_items)
         return dedupe_items(items), attempted_sources, successful_sources
 
@@ -699,6 +738,17 @@ def _date_from_text(text: str, pattern: str) -> datetime | None:
     if not match:
         return None
     return parse_datetime_text(match.group(1))
+
+
+def _page_has_in_range_date(soup: BeautifulSoup, since: datetime, until: datetime | None) -> bool:
+    start_date = since.astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date()
+    end_date = until.astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date() if until else None
+    for node in soup.select("time[datetime], meta[property='article:published_time'], meta[name='datePublished']"):
+        value = node.get("datetime") or node.get("content") or ""
+        published = parse_datetime_text(value)
+        if published and published.date() >= start_date and (end_date is None or published.date() < end_date):
+            return True
+    return False
 
 
 def _summary_from_row(row: Any) -> str:

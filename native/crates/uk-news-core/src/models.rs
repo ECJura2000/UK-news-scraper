@@ -156,6 +156,21 @@ impl ParliamentBriefing {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EndpointObservation {
+    pub url: String,
+    pub status_code: u16,
+    pub fetched_at: String,
+    #[serde(default)]
+    pub response_sha256: String,
+    #[serde(default)]
+    pub etag: String,
+    #[serde(default)]
+    pub last_modified: String,
+    #[serde(default)]
+    pub bytes_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SourceHealth {
     pub source: String,
     pub critical: bool,
@@ -166,6 +181,50 @@ pub struct SourceHealth {
     pub newest_published_at: String,
     #[serde(default)]
     pub warning: String,
+    #[serde(default)]
+    pub candidate_count: usize,
+    #[serde(default = "default_parser_version")]
+    pub parser_version: String,
+    #[serde(default)]
+    pub fetched_at: String,
+    #[serde(default)]
+    pub endpoints: Vec<EndpointObservation>,
+}
+
+fn default_parser_version() -> String {
+    "v1".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RunObservability {
+    pub source_count: usize,
+    pub source_success_rate: f64,
+    pub source_p95_seconds: f64,
+    pub zero_item_ratio: f64,
+    pub alerts: Vec<String>,
+}
+
+impl Default for RunObservability {
+    fn default() -> Self {
+        Self {
+            source_count: 0,
+            source_success_rate: 1.0,
+            source_p95_seconds: 0.0,
+            zero_item_ratio: 0.0,
+            alerts: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecordProvenance {
+    pub record_type: String,
+    pub source_id: String,
+    pub url: String,
+    pub canonical_url: String,
+    pub source_feed: String,
+    pub fetched_at: String,
+    pub parser_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +257,10 @@ pub struct RunSummary {
     pub minimum_score: i32,
     #[serde(default = "default_calendar")]
     pub excel_date_calendar: String,
+    #[serde(default)]
+    pub observability: RunObservability,
+    #[serde(default)]
+    pub record_provenance: Vec<RecordProvenance>,
 }
 
 fn default_profile_id() -> String {

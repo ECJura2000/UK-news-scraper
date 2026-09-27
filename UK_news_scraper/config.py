@@ -11,6 +11,7 @@ DEFAULT_DAYS_BACK = 14
 # The weekly automation has a one-minute collection-and-export SLO.  Individual
 # sources are isolated, so a slow upstream must not hold the whole report open.
 DEFAULT_TIMEOUT_SECONDS = 8
+DEFAULT_FETCH_BUDGET_SECONDS = 50
 DEFAULT_MAX_WORKERS = 8
 DEFAULT_RETRY_TOTAL = 0
 

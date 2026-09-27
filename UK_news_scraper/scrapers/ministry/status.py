@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from ...config import SOURCE_HEALTH_MAX_AGE_DAYS, SOURCE_HEALTH_MIN_ITEMS
-from ...models import NewsItem, SourceHealth
+from ...models import EndpointObservation, NewsItem, SourceHealth
 
 
 @dataclass
@@ -18,6 +18,9 @@ class AgencyFetchStatus:
     duration_seconds: float = 0.0
     newest_published_at: str = ""
     warning: str = ""
+    candidate_count: int = 0
+    fetched_at: str = ""
+    endpoints: tuple[EndpointObservation, ...] = ()
 
 
 @dataclass
@@ -44,6 +47,9 @@ class FetchAllResult:
                 duration_seconds=round(status.duration_seconds, 3),
                 newest_published_at=status.newest_published_at,
                 warning=status.warning or status.error,
+                candidate_count=status.candidate_count,
+                fetched_at=status.fetched_at,
+                endpoints=status.endpoints,
             )
             for status in self.statuses
         ]

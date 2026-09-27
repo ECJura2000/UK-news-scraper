@@ -419,6 +419,31 @@ pub fn dedupe(items: Vec<NewsItem>) -> Vec<NewsItem> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    #[test]
+    fn shared_feed_fixture_preserves_valid_item() {
+        let agency = Agency {
+            name_zh: "官方機關".into(),
+            name_en: "Official".into(),
+            short_name: "court-test:judgments".into(),
+            homepage: "https://official.example".into(),
+            feeds: vec!["https://official.example/feed".into()],
+            news_pages: vec![],
+            topics: vec![],
+            link_include_patterns: vec![],
+            official_pages: vec![],
+        };
+        let items = parse_feed_document(
+            include_bytes!("../../../../tests/fixtures/source_parser_v1.xml"),
+            &agency,
+            "https://official.example/feed",
+            Utc.with_ymd_and_hms(2026, 9, 23, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 9, 24, 0, 0, 0).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].content_type, ContentType::Judgment);
+    }
     #[test]
     fn ncsc_guidance_fixture() {
         let a = Agency {

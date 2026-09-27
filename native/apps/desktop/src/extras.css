@@ -30,5 +30,7 @@ th { position: sticky; top: 0; background: #eef6f8; }
 .run-progress progress { width: 100%; height: 13px; accent-color: #087f76; }
 .run-progress small, .match-reason { display: block; color: #586b79; font-size: 12px; margin-top: 5px; }
 .health-list { grid-column: 1/-1; display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 8px; }
+.health-overview { grid-column: 1/-1; margin: 0; color: #314a59; font-size: 13px; }
+.health-overview small { display: block; margin-top: 5px; color: #8b4d12; }
 .health-list article { display: grid; gap: 3px; padding: 10px; border: 1px solid #dbe5ea; border-radius: 8px; background: #fafcfd; }
 .health-list small { color: #8b4d12; }

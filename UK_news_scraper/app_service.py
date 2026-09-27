@@ -3,15 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from time import monotonic
 from typing import Callable
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 
 from .calendar_utils import CalendarMode, output_filename
-from .config import AGENCIES, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR, DEFAULT_TIMEZONE
+from .config import AGENCIES, DEFAULT_FETCH_BUDGET_SECONDS, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR, DEFAULT_TIMEZONE
+from .http.async_client import request_deadline
 from .dedupe import dedupe_news_items
 from .excel_exporter import ExportOptions, export_news
 from .models import NewsItem, ParliamentBriefing, RunStatus
+from .observability import summarize_source_health
+from .provenance import record_provenance
 from .profiles import (
     DEFAULT_PROFILE_ID,
     PARLIAMENT_SOURCE_ID,
@@ -123,6 +127,7 @@ def execute_run(
     lock_path = output.parent / f".{run_id}.lock"
 
     with exclusive_lock(lock_path):
+        fetch_deadline = monotonic() + DEFAULT_FETCH_BUDGET_SECONDS
         action = "重新抓取異常來源" if retry_source_ids else "抓取已選取的 UK 新聞來源"
         _emit(progress, "fetch_news", f"正在{action}", 1, 5)
         # Agency and Parliament sources are independent I/O.  Starting both at
@@ -134,9 +139,10 @@ def execute_run(
                 max_workers=request.workers,
                 agencies=selected_agencies,
                 until=until,
+                deadline=fetch_deadline,
             )
             parliament_future = (
-                executor.submit(fetch_parliament_briefings, since)
+                executor.submit(_fetch_parliament_with_deadline, since, fetch_deadline)
                 if include_parliament
                 else None
             )
@@ -199,9 +205,10 @@ def execute_run(
             status, warnings = evaluate_run_status(fetch_result, parliament_result)
         data_fingerprint = make_data_fingerprint(all_items, parliament_items)
         delivery_id = make_delivery_id(run_id, status, data_fingerprint)
+        generated_at = datetime.now(timezone.utc).isoformat()
         summary = RunSummary(
             run_id=run_id,
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=generated_at,
             period_start=request.period_start.isoformat(),
             period_end=request.period_end.isoformat(),
             output_file=str(path),
@@ -221,6 +228,8 @@ def execute_run(
             selected_sources=active_profile.selected_sources,
             minimum_score=active_profile.minimum_score,
             excel_date_calendar=request.export_options.calendar_mode.value,
+            observability=summarize_source_health(source_health),
+            record_provenance=record_provenance(all_items, parliament_items, generated_at, source_health),
         )
         summary_path = write_run_summary(summary, path)
         _emit(progress, "done", "抓取與 Excel 匯出完成", 5, 5)
@@ -233,6 +242,11 @@ def execute_run(
             parliament_items=tuple(parliament_items),
             filtered_parliament_items=tuple(filtered_parliament_items),
         )
+
+
+def _fetch_parliament_with_deadline(since: datetime, deadline: float):
+    with request_deadline(deadline):
+        return fetch_parliament_briefings(since)
 
 
 def evaluate_run_status(fetch_result, parliament_result) -> tuple[RunStatus, list[str]]:

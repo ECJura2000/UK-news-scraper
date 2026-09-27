@@ -12,8 +12,8 @@ use std::{
     },
 };
 use uk_news_core::{
-    assess_news, assess_parliament, make_data_fingerprint, make_delivery_id, FilterProfile,
-    NewsItem, ParliamentBriefing, RunStatus, RunSummary,
+    assess_news, assess_parliament, make_data_fingerprint, make_delivery_id, record_provenance,
+    summarize_source_health, FilterProfile, NewsItem, ParliamentBriefing, RunStatus, RunSummary,
 };
 use uk_news_export::{export_news, CalendarMode, ExportOptions};
 use uk_news_sources::{
@@ -365,9 +365,13 @@ async fn finalize(
     };
     let fingerprint = make_data_fingerprint(&agencies.items, &parliament.items);
     let run_id = run_id_for(options.since, options.until, &options.profile.profile_id);
+    let generated_at = Utc::now().to_rfc3339();
+    let observability = summarize_source_health(&health);
+    let record_provenance =
+        record_provenance(&agencies.items, &parliament.items, &generated_at, &health);
     let summary = RunSummary {
         run_id: run_id.clone(),
-        generated_at: Utc::now().to_rfc3339(),
+        generated_at: generated_at.clone(),
         period_start: options.since.to_string(),
         period_end: options.until.to_string(),
         output_file: options.output.to_string_lossy().into(),
@@ -391,6 +395,8 @@ async fn finalize(
             CalendarMode::Roc => "roc",
         }
         .into(),
+        observability,
+        record_provenance,
     };
     let summary_path = options.output.with_extension("run.json");
     atomic_json(&summary_path, &summary)?;

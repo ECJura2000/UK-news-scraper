@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Official decisions</title>
+  <item><title>Official digital policy decision</title><link>https://official.example/decisions/1</link><pubDate>Wed, 23 Sep 2026 09:00:00 GMT</pubDate></item>
+  <item><link>https://official.example/decisions/2</link><pubDate>Wed, 23 Sep 2026 10:00:00 GMT</pubDate></item>
+</channel></rss>

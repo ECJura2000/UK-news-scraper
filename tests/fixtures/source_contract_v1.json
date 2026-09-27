@@ -1,0 +1,18 @@
+{
+  "health": [
+    {"source": "A", "critical": true, "success": true, "item_count": 2, "duration_seconds": 2.0},
+    {"source": "B", "critical": true, "success": true, "item_count": 0, "duration_seconds": 3.0},
+    {"source": "C", "critical": true, "success": false, "item_count": 0, "duration_seconds": 70.0}
+  ],
+  "expected_observability": {
+    "source_count": 3,
+    "source_success_rate": 0.667,
+    "source_p95_seconds": 70.0,
+    "zero_item_ratio": 0.667,
+    "alerts": ["source_success_rate", "source_p95_seconds", "zero_item_ratio"]
+  },
+  "canonical_urls": [
+    {"raw": "HTTPS://Example.COM/path/?utm_source=mail#section", "expected": "https://example.com/path"},
+    {"raw": "https://example.com/", "expected": "https://example.com/"}
+  ]
+}

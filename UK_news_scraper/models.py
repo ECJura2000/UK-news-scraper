@@ -93,6 +93,17 @@ class ParliamentBriefing:
 
 
 @dataclass(frozen=True)
+class EndpointObservation:
+    url: str
+    status_code: int
+    fetched_at: str
+    response_sha256: str = ""
+    etag: str = ""
+    last_modified: str = ""
+    bytes_count: int = 0
+
+
+@dataclass(frozen=True)
 class SourceHealth:
     source: str
     critical: bool
@@ -101,3 +112,7 @@ class SourceHealth:
     duration_seconds: float
     newest_published_at: str = ""
     warning: str = ""
+    candidate_count: int = 0
+    parser_version: str = "v1"
+    fetched_at: str = ""
+    endpoints: tuple[EndpointObservation, ...] = ()

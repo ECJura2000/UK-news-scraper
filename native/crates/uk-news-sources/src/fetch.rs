@@ -1,12 +1,15 @@
+use crate::transport::Transport;
 use crate::{agencies, content_type_for_link, parse_feed_document, parse_official_html};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use feed_rs::parser;
 use futures::stream::{self, StreamExt};
 use regex::Regex;
 use scraper::{Html, Selector};
 use serde_json::Value;
 use std::{collections::HashSet, sync::Arc, time::Instant};
-use uk_news_core::{Agency, ContentType, NewsItem, ParliamentBriefing, SourceHealth};
+use uk_news_core::{
+    Agency, ContentType, EndpointObservation, NewsItem, ParliamentBriefing, SourceHealth,
+};
 
 pub struct FetchResult<T> {
     pub items: Vec<T>,
@@ -15,6 +18,55 @@ pub struct FetchResult<T> {
 }
 
 pub type SourceProgress = Arc<dyn Fn(&SourceHealth) + Send + Sync>;
+
+fn last_fetched_at(observations: &[EndpointObservation]) -> String {
+    observations
+        .last()
+        .map(|observation| observation.fetched_at.clone())
+        .unwrap_or_else(|| Utc::now().to_rfc3339())
+}
+
+fn page_has_in_range_date(html: &str, since: DateTime<Utc>, until: DateTime<Utc>) -> bool {
+    let start_date = (since + chrono::Duration::hours(8)).date_naive();
+    let end_date = (until + chrono::Duration::hours(8)).date_naive();
+    let document = Html::parse_document(html);
+    let selector = Selector::parse(
+        "time[datetime], meta[property='article:published_time'], meta[name='datePublished']",
+    )
+    .expect("static selector");
+    document.select(&selector).any(|node| {
+        let raw = node
+            .value()
+            .attr("datetime")
+            .or_else(|| node.value().attr("content"));
+        raw.and_then(|value| value.get(..10))
+            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+            .is_some_and(|date| date >= start_date && date < end_date)
+    })
+}
+
+fn collect_out_of_period_links(
+    feed: &feed_rs::model::Feed,
+    since: DateTime<Utc>,
+    until: DateTime<Utc>,
+    excluded: &mut HashSet<String>,
+) {
+    for entry in &feed.entries {
+        if entry
+            .published
+            .or(entry.updated)
+            .is_some_and(|date| date < since || date >= until)
+        {
+            if let Some(link) = entry.links.first() {
+                excluded.insert(link.href.trim_end_matches('/').to_string());
+            }
+        }
+    }
+}
+
+fn exclude_precise_out_of_period_links(items: &mut Vec<NewsItem>, excluded: &HashSet<String>) {
+    items.retain(|item| !excluded.contains(item.link.trim_end_matches('/')));
+}
 
 pub async fn fetch_agencies(
     since: DateTime<Utc>,
@@ -32,27 +84,36 @@ pub async fn fetch_agencies_with_progress(
     selected: &[String],
     progress: Option<SourceProgress>,
 ) -> FetchResult<NewsItem> {
-    let client = reqwest::Client::builder()
-        .user_agent("UK-news-observation-scraper/2.0")
-        .timeout(std::time::Duration::from_secs(8))
-        .build()
-        .unwrap();
+    let transport = Transport::new();
     let targets = agencies()
         .into_iter()
         .filter(|a| selected.contains(&a.short_name))
         .collect::<Vec<_>>();
     let results = stream::iter(targets)
         .map(|agency| {
-            let client = client.clone();
+            let transport = transport.clone();
             let progress = progress.clone();
             async move {
                 let started = Instant::now();
                 let mut items = vec![];
                 let mut warnings = vec![];
                 let mut successes = 0usize;
+                let mut candidate_count = 0usize;
+                let mut observations = vec![];
+                let mut precise_out_of_period_links = std::collections::HashSet::new();
                 if let Some(slug) = agency.short_name.strip_prefix("govuk:") {
-                    match fetch_govuk_search(&client, &agency, slug, since, until).await {
-                        Ok((mut found, warning)) => {
+                    match fetch_govuk_search(
+                        &transport,
+                        &agency,
+                        slug,
+                        since,
+                        until,
+                        &mut observations,
+                    )
+                    .await
+                    {
+                        Ok((mut found, warning, candidates)) => {
+                            candidate_count += candidates;
                             successes += 1;
                             items.append(&mut found);
                             if let Some(warning) = warning {
@@ -65,61 +126,103 @@ pub async fn fetch_agencies_with_progress(
                     }
                 } else {
                     for source in &agency.feeds {
-                        match client
-                            .get(source)
-                            .send()
+                        match transport
+                            .bytes(transport.get(source), &mut observations)
                             .await
-                            .and_then(|r| r.error_for_status())
                         {
-                        Ok(r) => match r.bytes().await {
                             Ok(b) => {
-                                if agency.short_name.starts_with("court-") {
-                                    match parser::parse(&b[..]) {
-                                        Ok(feed) => {
-                                            let oldest = feed.entries.iter().filter_map(|entry| entry.published.or(entry.updated)).min();
-                                            if oldest.is_some_and(|date| date > since) {
-                                                warnings.push(format!("{} 官方 RSS 最舊資料晚於查詢起日，期間可能不完整", agency.short_name));
-                                            }
+                                let mut feed_candidates = 0usize;
+                                if let Ok(feed) = parser::parse(&b[..]) {
+                                    collect_out_of_period_links(
+                                        &feed,
+                                        since,
+                                        until,
+                                        &mut precise_out_of_period_links,
+                                    );
+                                    feed_candidates = feed
+                                        .entries
+                                        .iter()
+                                        .filter(|entry| {
+                                            let in_period = entry
+                                                .published
+                                                .or(entry.updated)
+                                                .is_none_or(|date| date >= since && date < until);
+                                            let allowed_link =
+                                                entry.links.first().is_none_or(|link| {
+                                                    agency.link_include_patterns.is_empty()
+                                                        || agency.link_include_patterns.iter().any(
+                                                            |pattern| link.href.contains(pattern),
+                                                        )
+                                                });
+                                            in_period && allowed_link
+                                        })
+                                        .count();
+                                    candidate_count += feed_candidates;
+                                    if agency.short_name.starts_with("court-") {
+                                        let oldest = feed
+                                            .entries
+                                            .iter()
+                                            .filter_map(|entry| entry.published.or(entry.updated))
+                                            .min();
+                                        if oldest.is_some_and(|date| date > since) {
+                                            warnings.push(format!(
+                                                "{} 官方 RSS 最舊資料晚於查詢起日，期間可能不完整",
+                                                agency.short_name
+                                            ));
                                         }
-                                        Err(error) => warnings.push(format!("{} RSS 覆蓋檢查失敗：{error}", agency.short_name)),
                                     }
                                 }
                                 match parse_feed_document(&b, &agency, source, since, until) {
-                                        Ok(mut x) => {
-                                            successes += 1;
-                                            items.append(&mut x)
+                                    Ok(mut x) => {
+                                        if feed_candidates > 0 && x.is_empty() {
+                                            warnings.push(format!(
+                                                "{} RSS 有候選資料但解析為零筆",
+                                                agency.short_name
+                                            ));
                                         }
-                                        Err(e) => warnings.push(format!(
-                                            "{} RSS 解析失敗：{}",
-                                            agency.short_name, e
-                                        )),
+                                        successes += 1;
+                                        items.append(&mut x)
                                     }
+                                    Err(e) => warnings
+                                        .push(format!("{} RSS 解析失敗：{}", agency.short_name, e)),
                                 }
-                                Err(e) => warnings
-                                    .push(format!("{} RSS 讀取失敗：{}", agency.short_name, e)),
-                            },
+                            }
                             Err(e) => {
                                 warnings.push(format!("{} RSS 讀取失敗：{}", agency.short_name, e))
                             }
                         }
                     }
-                    for source in agency.news_pages.iter().chain(agency.official_pages.iter()) {
-                        match client
-                            .get(source)
-                            .send()
+                    let fetch_news_pages = items.is_empty();
+                    for source in agency
+                        .news_pages
+                        .iter()
+                        .filter(|_| fetch_news_pages)
+                        .chain(agency.official_pages.iter())
+                    {
+                        match transport
+                            .bytes(transport.get(source), &mut observations)
                             .await
-                            .and_then(|r| r.error_for_status())
                         {
-                            Ok(r) => match r.text().await {
-                                Ok(t) => {
-                                    successes += 1;
-                                    items.extend(parse_official_html(
-                                        &t, &agency, source, since, until,
-                                    ))
+                            Ok(b) => {
+                                successes += 1;
+                                let html = String::from_utf8_lossy(&b);
+                                let mut parsed =
+                                    parse_official_html(&html, &agency, source, since, until);
+                                exclude_precise_out_of_period_links(
+                                    &mut parsed,
+                                    &precise_out_of_period_links,
+                                );
+                                if parsed.is_empty() && page_has_in_range_date(&html, since, until)
+                                {
+                                    candidate_count += 1;
+                                    warnings.push(format!(
+                                        "{} 官方頁有期間內日期但解析為零筆",
+                                        agency.short_name
+                                    ));
                                 }
-                                Err(e) => warnings
-                                    .push(format!("{} 官方頁讀取失敗：{}", agency.short_name, e)),
-                            },
+                                candidate_count += parsed.len();
+                                items.extend(parsed);
+                            }
                             Err(e) => warnings
                                 .push(format!("{} 官方頁讀取失敗：{}", agency.short_name, e)),
                         }
@@ -131,7 +234,9 @@ pub async fn fetch_agencies_with_progress(
                         "Ofcom" | "NPSA" | "Electoral Commission"
                     )
                 {
-                    match google_news_fallback(&client, &agency, since, until).await {
+                    match google_news_fallback(&transport, &agency, since, until, &mut observations)
+                        .await
+                    {
                         Ok(mut fallback) => {
                             successes += 1;
                             items.append(&mut fallback);
@@ -162,6 +267,13 @@ pub async fn fetch_agencies_with_progress(
                     duration_seconds: round_duration(started.elapsed().as_secs_f64()),
                     newest_published_at: newest,
                     warning: warning.clone(),
+                    candidate_count,
+                    parser_version: "v1".into(),
+                    fetched_at: observations
+                        .last()
+                        .map(|observation| observation.fetched_at.clone())
+                        .unwrap_or_else(|| Utc::now().to_rfc3339()),
+                    endpoints: observations,
                 };
                 if let Some(progress) = progress {
                     progress(&health);
@@ -190,14 +302,17 @@ pub async fn fetch_agencies_with_progress(
 }
 
 async fn fetch_govuk_search(
-    client: &reqwest::Client,
+    transport: &Transport,
     agency: &Agency,
     slug: &str,
     since: DateTime<Utc>,
     until: DateTime<Utc>,
-) -> Result<(Vec<NewsItem>, Option<String>), String> {
+    observations: &mut Vec<EndpointObservation>,
+) -> Result<(Vec<NewsItem>, Option<String>, usize), String> {
     let mut items = Vec::new();
     let mut start = 0usize;
+    let mut candidate_count = 0usize;
+    let mut malformed_count = 0usize;
     for _ in 0..50 {
         let date_filter = format!("from:{},to:{}", since.date_naive(), until.date_naive());
         let query = [
@@ -211,30 +326,34 @@ async fn fetch_govuk_search(
             ("count", "100".into()),
             ("start", start.to_string()),
         ];
-        let response = client
+        let builder = transport
             .get("https://www.gov.uk/api/search.json")
-            .query(&query)
-            .send()
-            .await
-            .and_then(|value| value.error_for_status())
-            .map_err(|error| error.to_string());
-        let response = match response {
-            Ok(response) => response,
+            .query(&query);
+        let source_url = builder
+            .try_clone()
+            .ok_or("GOV.UK query cannot be cloned")?
+            .build()
+            .map_err(|error| error.to_string())?
+            .url()
+            .to_string();
+        let bytes = match transport.bytes(builder, observations).await {
+            Ok(bytes) => bytes,
             Err(error) if !items.is_empty() => {
                 return Ok((
                     crate::parse::dedupe(items),
                     Some(format!("搜尋分頁中斷，已保留取得的資料：{error}")),
+                    candidate_count,
                 ));
             }
             Err(error) => return Err(error),
         };
-        let source_url = response.url().to_string();
-        let payload: Value = match response.json().await {
+        let payload: Value = match serde_json::from_slice(&bytes) {
             Ok(payload) => payload,
             Err(error) if !items.is_empty() => {
                 return Ok((
                     crate::parse::dedupe(items),
                     Some(format!("搜尋分頁格式異常，已保留取得的資料：{error}")),
+                    candidate_count,
                 ));
             }
             Err(error) => return Err(error.to_string()),
@@ -244,24 +363,16 @@ async fn fetch_govuk_search(
                 return Ok((
                     crate::parse::dedupe(items),
                     Some("搜尋分頁缺少 results，已保留取得的資料".into()),
+                    candidate_count,
                 ));
             }
             return Err("GOV.UK 搜尋缺少 results".into());
         };
         for value in results {
             let Some(path) = value.get("link").and_then(Value::as_str) else {
+                malformed_count += 1;
                 continue;
             };
-            let Some(raw_date) = value.get("public_timestamp").and_then(Value::as_str) else {
-                continue;
-            };
-            let Ok(published_at) = DateTime::parse_from_rfc3339(raw_date) else {
-                continue;
-            };
-            let published_at = published_at.with_timezone(&Utc);
-            if published_at < since || published_at >= until {
-                continue;
-            }
             let link = if path.starts_with("https://") {
                 path.to_string()
             } else {
@@ -281,12 +392,26 @@ async fn fetch_govuk_search(
             if !allowed_path && !official_decision {
                 continue;
             }
+            let Some(raw_date) = value.get("public_timestamp").and_then(Value::as_str) else {
+                malformed_count += 1;
+                continue;
+            };
+            let Ok(published_at) = DateTime::parse_from_rfc3339(raw_date) else {
+                malformed_count += 1;
+                continue;
+            };
+            let published_at = published_at.with_timezone(&Utc);
+            if published_at < since || published_at >= until {
+                continue;
+            }
+            candidate_count += 1;
             let title = value
                 .get("title")
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .trim();
             if title.is_empty() {
+                malformed_count += 1;
                 continue;
             }
             let summary = value
@@ -328,12 +453,21 @@ async fn fetch_govuk_search(
                     .and_then(Value::as_u64)
                     .unwrap_or(start as u64) as usize
         {
-            return Ok((crate::parse::dedupe(items), None));
+            let mut warning_parts = Vec::new();
+            if malformed_count > 0 {
+                warning_parts.push(format!("搜尋有 {malformed_count} 筆資料欄位不完整"));
+            }
+            if candidate_count > 0 && items.is_empty() {
+                warning_parts.push("搜尋有候選資料但解析為零筆".into());
+            }
+            let warning = (!warning_parts.is_empty()).then(|| warning_parts.join("；"));
+            return Ok((crate::parse::dedupe(items), warning, candidate_count));
         }
     }
     Ok((
         crate::parse::dedupe(items),
         Some("搜尋結果超過 5000 筆，請縮短期間".into()),
+        candidate_count,
     ))
 }
 
@@ -349,28 +483,27 @@ fn is_decision_format(value: &str) -> bool {
 }
 
 async fn fetch_parliament_api(
-    client: &reqwest::Client,
+    transport: &Transport,
     since: DateTime<Utc>,
     until: DateTime<Utc>,
+    observations: &mut Vec<EndpointObservation>,
 ) -> Result<Vec<ParliamentBriefing>, String> {
     let mut output = vec![];
     for page in 0..20 {
-        let payload: Value = client
-            .get("https://lda.data.parliament.uk/researchbriefings.json")
-            .query(&[
-                ("_view", "all"),
-                ("_page", &page.to_string()),
-                ("_pageSize", "500"),
-                ("_sort", "-date"),
-            ])
-            .send()
-            .await
-            .map_err(|error| error.to_string())?
-            .error_for_status()
-            .map_err(|error| error.to_string())?
-            .json()
-            .await
-            .map_err(|error| error.to_string())?;
+        let bytes = transport
+            .bytes(
+                transport
+                    .get("https://lda.data.parliament.uk/researchbriefings.json")
+                    .query(&[
+                        ("_view", "all"),
+                        ("_page", &page.to_string()),
+                        ("_pageSize", "500"),
+                        ("_sort", "-date"),
+                    ]),
+                observations,
+            )
+            .await?;
+        let payload: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
         let values = payload
             .pointer("/result/items")
             .and_then(Value::as_array)
@@ -488,10 +621,11 @@ fn round_duration(value: f64) -> f64 {
 }
 
 async fn google_news_fallback(
-    client: &reqwest::Client,
+    transport: &Transport,
     agency: &Agency,
     since: DateTime<Utc>,
     until: DateTime<Utc>,
+    observations: &mut Vec<EndpointObservation>,
 ) -> Result<Vec<NewsItem>, String> {
     let queries: &[&str] = match agency.short_name.as_str() {
         "Ofcom" => &[
@@ -524,15 +658,10 @@ async fn google_news_fallback(
             .collect::<String>();
         let source =
             format!("https://news.google.com/rss/search?q={encoded}&hl=en-GB&gl=GB&ceid=GB:en");
-        let response = client
-            .get(&source)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?;
-        let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-        let feed = parser::parse(bytes.as_ref()).map_err(|e| e.to_string())?;
+        let bytes = transport
+            .bytes(transport.get(&source), observations)
+            .await?;
+        let feed = parser::parse(&bytes[..]).map_err(|e| e.to_string())?;
         for entry in feed.entries {
             let Some(published) = entry.published.or(entry.updated) else {
                 continue;
@@ -641,11 +770,7 @@ pub async fn fetch_parliament(
     since: DateTime<Utc>,
     until: DateTime<Utc>,
 ) -> FetchResult<ParliamentBriefing> {
-    let client = reqwest::Client::builder()
-        .user_agent("UK-news-observation-scraper/2.0")
-        .timeout(std::time::Duration::from_secs(8))
-        .build()
-        .unwrap();
+    let transport = Transport::new();
     let feeds = [
         (
             "House of Commons Library",
@@ -668,7 +793,8 @@ pub async fn fetch_parliament(
     let mut warnings = vec![];
     if std::env::var("UK_PARLIAMENT_TRY_API").as_deref() == Ok("1") {
         let started = Instant::now();
-        match fetch_parliament_api(&client, since, until).await {
+        let mut observations = vec![];
+        match fetch_parliament_api(&transport, since, until, &mut observations).await {
             Ok(mut api_items) if !api_items.is_empty() => {
                 let newest = api_items
                     .iter()
@@ -684,6 +810,10 @@ pub async fn fetch_parliament(
                     duration_seconds: round_duration(started.elapsed().as_secs_f64()),
                     newest_published_at: newest,
                     warning: String::new(),
+                    candidate_count: api_items.len(),
+                    parser_version: "v1".into(),
+                    fetched_at: last_fetched_at(&observations),
+                    endpoints: observations,
                 });
                 items.append(&mut api_items);
             }
@@ -698,6 +828,10 @@ pub async fn fetch_parliament(
                     duration_seconds: round_duration(started.elapsed().as_secs_f64()),
                     newest_published_at: String::new(),
                     warning: warning.clone(),
+                    candidate_count: 0,
+                    parser_version: "v1".into(),
+                    fetched_at: last_fetched_at(&observations),
+                    endpoints: observations,
                 });
                 warnings.push(warning);
             }
@@ -711,6 +845,10 @@ pub async fn fetch_parliament(
                     duration_seconds: round_duration(started.elapsed().as_secs_f64()),
                     newest_published_at: String::new(),
                     warning: warning.clone(),
+                    candidate_count: 0,
+                    parser_version: "v1".into(),
+                    fetched_at: last_fetched_at(&observations),
+                    endpoints: observations,
                 });
                 warnings.push(warning);
             }
@@ -720,31 +858,25 @@ pub async fn fetch_parliament(
         let started = Instant::now();
         let mut source_items = vec![];
         let mut error = None;
+        let mut observations = vec![];
+        let mut candidate_count = 0usize;
         for page in 1..=20 {
             let page_url = if page == 1 {
                 url.into()
             } else {
                 format!("{url}?paged={page}")
             };
-            let bytes = match client
-                .get(&page_url)
-                .send()
+            let bytes = match transport
+                .bytes(transport.get(&page_url), &mut observations)
                 .await
-                .and_then(|r| r.error_for_status())
             {
-                Ok(r) => match r.bytes().await {
-                    Ok(b) => b,
-                    Err(e) => {
-                        error = Some(e.to_string());
-                        break;
-                    }
-                },
+                Ok(bytes) => bytes,
                 Err(e) => {
-                    error = Some(e.to_string());
+                    error = Some(e);
                     break;
                 }
             };
-            let feed = match parser::parse(bytes.as_ref()) {
+            let feed = match parser::parse(&bytes[..]) {
                 Ok(f) => f,
                 Err(e) => {
                     error = Some(e.to_string());
@@ -752,6 +884,16 @@ pub async fn fetch_parliament(
                 }
             };
             let entry_count = feed.entries.len();
+            candidate_count += feed
+                .entries
+                .iter()
+                .filter(|entry| {
+                    entry
+                        .published
+                        .or(entry.updated)
+                        .is_none_or(|date| date >= since && date < until)
+                })
+                .count();
             let mut oldest = None;
             for entry in feed.entries {
                 let Some(published) = entry.published.or(entry.updated) else {
@@ -814,9 +956,12 @@ pub async fn fetch_parliament(
             }
         }
         let success = error.is_none();
-        let warning = error
+        let mut warning = error
             .map(|e| format!("{publisher} RSS 讀取失敗：{e}"))
             .unwrap_or_default();
+        if candidate_count > 0 && source_items.is_empty() && warning.is_empty() {
+            warning = format!("{publisher} RSS 有候選資料但解析為零筆");
+        }
         if !warning.is_empty() {
             warnings.push(warning.clone())
         }
@@ -835,6 +980,10 @@ pub async fn fetch_parliament(
             duration_seconds: round_duration(started.elapsed().as_secs_f64()),
             newest_published_at: newest,
             warning,
+            candidate_count: source_items.len(),
+            parser_version: "v1".into(),
+            fetched_at: last_fetched_at(&observations),
+            endpoints: observations,
         });
         items.append(&mut source_items)
     }
@@ -843,18 +992,18 @@ pub async fn fetch_parliament(
         let started = Instant::now();
         let mut source_items = vec![];
         let mut warning = String::new();
-        match client
-            .get(url)
-            .send()
-            .await
-            .and_then(|r| r.error_for_status())
-        {
-            Ok(r) => match r.text().await {
-                Ok(html) => {
-                    source_items = parse_topic_archive(&html, url, publisher, chamber, since, until)
-                }
-                Err(e) => warning = format!("{label} 主題頁讀取失敗：{e}"),
-            },
+        let mut observations = vec![];
+        match transport.bytes(transport.get(url), &mut observations).await {
+            Ok(bytes) => {
+                source_items = parse_topic_archive(
+                    &String::from_utf8_lossy(&bytes),
+                    url,
+                    publisher,
+                    chamber,
+                    since,
+                    until,
+                )
+            }
             Err(e) => warning = format!("{label} 主題頁讀取失敗：{e}"),
         };
         let success = warning.is_empty();
@@ -875,6 +1024,10 @@ pub async fn fetch_parliament(
             duration_seconds: round_duration(started.elapsed().as_secs_f64()),
             newest_published_at: newest,
             warning,
+            candidate_count: source_items.len(),
+            parser_version: "v1".into(),
+            fetched_at: last_fetched_at(&observations),
+            endpoints: observations,
         });
         items.append(&mut source_items)
     }
@@ -1001,6 +1154,47 @@ fn dedupe_parliament(mut items: Vec<ParliamentBriefing>) -> Vec<ParliamentBriefi
 #[cfg(test)]
 mod selection_tests {
     use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn dated_page_with_no_parsed_records_is_a_candidate() {
+        let since = Utc.with_ymd_and_hms(2026, 9, 22, 16, 0, 0).unwrap();
+        let until = Utc.with_ymd_and_hms(2026, 9, 23, 16, 0, 0).unwrap();
+        assert!(page_has_in_range_date(
+            "<html><time datetime='2026-09-23'>23 September</time></html>",
+            since,
+            until,
+        ));
+        assert!(!page_has_in_range_date(
+            "<html><time datetime='2026-09-21'>21 September</time></html>",
+            since,
+            until,
+        ));
+    }
+
+    #[test]
+    fn precise_feed_date_excludes_ambiguous_html_day() {
+        let since = Utc.with_ymd_and_hms(2026, 9, 22, 16, 0, 0).unwrap();
+        let until = Utc.with_ymd_and_hms(2026, 9, 23, 16, 0, 0).unwrap();
+        let link = "https://www.gov.uk/government/news/test-ai-appointment";
+        let feed = format!(
+            "<feed xmlns='http://www.w3.org/2005/Atom'><id>test</id><title>test</title><updated>2026-09-23T16:00:01Z</updated><entry><id>{link}</id><title>Test AI appointment</title><updated>2026-09-23T16:00:01Z</updated><link href='{link}' /></entry></feed>"
+        );
+        let parsed_feed = parser::parse(feed.as_bytes()).unwrap();
+        let mut excluded = HashSet::new();
+        collect_out_of_period_links(&parsed_feed, since, until, &mut excluded);
+        let agency = agencies()
+            .into_iter()
+            .find(|agency| agency.short_name == "Cabinet Office")
+            .unwrap();
+        let html = format!(
+            "<ul><li><a href='{link}'>Test AI appointment</a><time datetime='2026-09-23'>23 September</time></li></ul>"
+        );
+        let mut items = parse_official_html(&html, &agency, &agency.homepage, since, until);
+        assert_eq!(items.len(), 1);
+        exclude_precise_out_of_period_links(&mut items, &excluded);
+        assert!(items.is_empty());
+    }
 
     #[tokio::test]
     async fn empty_selection_does_not_fetch_entire_catalog() {

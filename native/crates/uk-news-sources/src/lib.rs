@@ -2,6 +2,7 @@ mod agencies;
 mod catalog;
 mod fetch;
 mod parse;
+mod transport;
 
 pub use agencies::agencies;
 pub use catalog::{catalog_entries, CatalogEntry};

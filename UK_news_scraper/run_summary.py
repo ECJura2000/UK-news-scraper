@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 import hashlib
 import json
 from pathlib import Path
 
 from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
+from .observability import RunObservability
 
 
 DATA_FINGERPRINT_VERSION = "v3"
@@ -35,6 +36,8 @@ class RunSummary:
     selected_sources: tuple[str, ...] = ()
     minimum_score: int = 3
     excel_date_calendar: str = "gregorian"
+    observability: RunObservability = field(default_factory=RunObservability)
+    record_provenance: tuple[dict[str, str], ...] = ()
 
 
 def write_run_summary(summary: RunSummary, output_path: str | Path) -> Path:

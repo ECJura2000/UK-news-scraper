@@ -13,6 +13,7 @@ def summary(fingerprint="abc", count=3):
         "parliament_count": 1,
         "filtered_parliament_count": 1,
         "data_fingerprint": fingerprint,
+        "status": "success",
     }
 
 
@@ -20,17 +21,43 @@ def test_compare_requires_counts_and_fingerprint_to_match():
     assert compare(summary(), summary())["logical_match"] is True
     assert compare(summary(), summary(count=4))["logical_match"] is False
     assert compare(summary(), summary(fingerprint="changed"))["logical_match"] is False
+    assert compare(summary(), {**summary(), "status": "degraded"})["logical_match"] is False
 
 
 def test_compare_catches_source_and_provenance_drift():
     original = summary()
-    original.update({
-        "status": "complete",
-        "delivery_id": "delivery-id",
-        "source_health": [{"source": "A", "success": True, "item_count": 2, "candidate_count": 2, "duration_seconds": 1, "endpoints": [{"url": "https://example.com/feed", "status_code": 200}]}],
-        "record_provenance": [{"record_type": "news", "source_id": "A", "canonical_url": "https://example.com/a", "source_feed": "feed", "parser_version": "v1", "fetched_at": "first"}],
-        "observability": {"source_count": 1, "source_success_rate": 1.0, "zero_item_ratio": 0.0, "source_p95_seconds": 1.0},
-    })
+    original.update(
+        {
+            "status": "complete",
+            "delivery_id": "delivery-id",
+            "source_health": [
+                {
+                    "source": "A",
+                    "success": True,
+                    "item_count": 2,
+                    "candidate_count": 2,
+                    "duration_seconds": 1,
+                    "endpoints": [{"url": "https://example.com/feed", "status_code": 200}],
+                }
+            ],
+            "record_provenance": [
+                {
+                    "record_type": "news",
+                    "source_id": "A",
+                    "canonical_url": "https://example.com/a",
+                    "source_feed": "feed",
+                    "parser_version": "v1",
+                    "fetched_at": "first",
+                }
+            ],
+            "observability": {
+                "source_count": 1,
+                "source_success_rate": 1.0,
+                "zero_item_ratio": 0.0,
+                "source_p95_seconds": 1.0,
+            },
+        }
+    )
     same = json.loads(json.dumps(original))
     same["source_health"][0]["duration_seconds"] = 9
     same["record_provenance"][0]["fetched_at"] = "second"

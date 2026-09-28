@@ -1,5 +1,5 @@
 from argparse import Namespace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -20,8 +20,8 @@ def _args(**overrides):
 
 def test_default_range_is_stable_across_same_local_day():
     local_timezone = ZoneInfo("Asia/Taipei")
-    early = datetime(2026, 6, 8, 7, 1, tzinfo=local_timezone).astimezone(timezone.utc)
-    late = datetime(2026, 6, 8, 16, 4, tzinfo=local_timezone).astimezone(timezone.utc)
+    early = datetime(2026, 6, 8, 7, 1, tzinfo=local_timezone).astimezone(UTC)
+    late = datetime(2026, 6, 8, 16, 4, tzinfo=local_timezone).astimezone(UTC)
 
     early_range = _resolve_date_range(_args(), early)
     late_range = _resolve_date_range(_args(), late)
@@ -32,4 +32,4 @@ def test_default_range_is_stable_across_same_local_day():
 
 def test_negative_days_is_rejected():
     with pytest.raises(SystemExit, match="不可為負數"):
-        _resolve_date_range(_args(days=-1), datetime.now(timezone.utc))
+        _resolve_date_range(_args(days=-1), datetime.now(UTC))

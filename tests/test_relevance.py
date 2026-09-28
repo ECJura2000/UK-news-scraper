@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import pytest
 
 from UK_news_scraper.models import NewsItem
@@ -13,7 +14,7 @@ from UK_news_scraper.scrapers.ministry.registry import apply_topic_filter
 
 
 def _item(title: str, summary: str = "", link: str = "https://example.com") -> NewsItem:
-    return NewsItem("Agency", "Agency", "A", title, link, datetime.now(timezone.utc), summary)
+    return NewsItem("Agency", "Agency", "A", title, link, datetime.now(UTC), summary)
 
 
 def test_broad_keyword_alone_is_not_relevant():
@@ -27,7 +28,11 @@ def test_broad_keyword_alone_is_not_relevant():
         ("Final storage and access technologies guidance published", "", "資料治理/隱私/數位身份"),
         ("Company Guidance | Secure Innovation", "", "網路安全/資安"),
         ("Government procurement to prioritise national security", "", "數位治理/標準/公共部門"),
-        ("A new framework was published", "Public sector AI procurement rules and risk management.", "數位治理/標準/公共部門"),
+        (
+            "A new framework was published",
+            "Public sector AI procurement rules and risk management.",
+            "數位治理/標準/公共部門",
+        ),
         ("AI Hardware Plan", "", "AI"),
         ("App stores agree to fairer terms", "", "數位平台"),
     ],

@@ -1,4 +1,5 @@
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from UK_news_scraper.dedupe import normalize_title
 from UK_news_scraper.scrapers.ministry.utils.date import parse_datetime_text

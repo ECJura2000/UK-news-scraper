@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from math import ceil
-from typing import Iterable
 
 from .models import SourceHealth
-
 
 OBSERVABILITY_BUDGETS = {
     "minimum_source_success_rate": 0.90,
@@ -15,8 +14,10 @@ OBSERVABILITY_BUDGETS = {
 }
 
 
-def evaluate_observability_budget(*, success_rate: float, p95_seconds: float, zero_item_ratio: float, peak_memory_mb: float):
-    warnings = []
+def evaluate_observability_budget(
+    *, success_rate: float, p95_seconds: float, zero_item_ratio: float, peak_memory_mb: float
+) -> list[str]:
+    warnings: list[str] = []
     if success_rate < OBSERVABILITY_BUDGETS["minimum_source_success_rate"]:
         warnings.append("source_success_rate")
     if p95_seconds > OBSERVABILITY_BUDGETS["source_p95_seconds"]:

@@ -7,7 +7,6 @@ import sys
 import tomllib
 from pathlib import Path
 
-
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_DIR))
 
@@ -52,9 +51,7 @@ def package(platform_name: str) -> Path:
             PROJECT_DIR / "run_windows_ui.bat",
         )
     else:
-        required = (
-            dist_dir / "UKNewsScraper",
-        )
+        required = (dist_dir / "UKNewsScraper",)
 
     missing = [str(path) for path in required if not path.exists()]
     if missing:

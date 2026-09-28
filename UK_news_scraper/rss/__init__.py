@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urljoin
 
-import feedparser
+import feedparser  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup
 
 from ..http.async_client import get_text
@@ -24,10 +24,12 @@ def discover_feed_urls(page_url: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     urls: list[str] = []
     for link in soup.find_all("link"):
-        rel = " ".join(link.get("rel", [])).lower() if link.get("rel") else ""
-        feed_type = (link.get("type") or "").lower()
+        rel_value = link.get("rel")
+        rel = " ".join(rel_value).lower() if isinstance(rel_value, list) else str(rel_value or "").lower()
+        feed_type_value = link.get("type")
+        feed_type = feed_type_value.lower() if isinstance(feed_type_value, str) else ""
         href = link.get("href")
-        if not href:
+        if not isinstance(href, str) or not href:
             continue
         if "alternate" in rel and ("rss" in feed_type or "atom" in feed_type or "xml" in feed_type):
             urls.append(urljoin(page_url, href))

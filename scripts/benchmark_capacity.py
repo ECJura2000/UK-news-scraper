@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 import json
 import platform
-from pathlib import Path
 import statistics
 import sys
 import time
 import tracemalloc
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -45,9 +45,14 @@ def measure(operation, iterations: int = 5) -> dict:
 
 def make_items(size: int):
     return [
-        NewsItem("Agency", "Agency", "A", f"Title {index // 2}", f"https://example.com/{index // 2}", datetime.now(timezone.utc))
+        NewsItem("Agency", "Agency", "A", f"Title {index // 2}", f"https://example.com/{index // 2}", datetime.now(UTC))
         for index in range(size)
     ]
+
+
+def measure_dedupe(size: int) -> dict:
+    items = make_items(size)
+    return measure(lambda: dedupe_news_items(items))
 
 
 def concurrency_measure(workers: int, jobs: int = 64) -> dict:
@@ -63,15 +68,21 @@ def main() -> None:
     parser.add_argument("--sizes", nargs="+", type=int, default=[1000, 10000, 100000])
     parser.add_argument("--workers", nargs="+", type=int, default=[1, 4, 6, 13])
     args = parser.parse_args()
-    print(json.dumps({
-        "environment": {
-            "python": platform.python_version(),
-            "platform": platform.platform(),
-            "processor": platform.processor(),
-        },
-        "dedupe": {str(size): measure(lambda items=make_items(size): dedupe_news_items(items)) for size in args.sizes},
-        "concurrency": {str(workers): concurrency_measure(workers) for workers in args.workers},
-    }, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "environment": {
+                    "python": platform.python_version(),
+                    "platform": platform.platform(),
+                    "processor": platform.processor(),
+                },
+                "dedupe": {str(size): measure_dedupe(size) for size in args.sizes},
+                "concurrency": {str(workers): concurrency_measure(workers) for workers in args.workers},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

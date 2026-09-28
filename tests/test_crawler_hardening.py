@@ -1,6 +1,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from time import monotonic, sleep
@@ -16,48 +16,64 @@ from UK_news_scraper.observability import summarize_source_health
 from UK_news_scraper.provenance import canonical_url
 from UK_news_scraper.scrapers.ministry.registry import AgencyFeedScraper
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_shared_source_contract():
     fixture = json.loads((FIXTURES / "source_contract_v1.json").read_text(encoding="utf-8"))
     summary = summarize_source_health(SourceHealth(**source) for source in fixture["health"])
-    assert vars(summary) == {**fixture["expected_observability"], "alerts": tuple(fixture["expected_observability"]["alerts"])}
+    assert vars(summary) == {
+        **fixture["expected_observability"],
+        "alerts": tuple(fixture["expected_observability"]["alerts"]),
+    }
     for example in fixture["canonical_urls"]:
         assert canonical_url(example["raw"]) == example["expected"]
 
 
 def test_feed_with_valid_and_malformed_entries_preserves_valid_item(monkeypatch):
-    agency = Agency("官方機關", "Official", "court-test:judgments", "https://official.example", feeds=("https://official.example/feed",))
+    agency = Agency(
+        "官方機關",
+        "Official",
+        "court-test:judgments",
+        "https://official.example",
+        feeds=("https://official.example/feed",),
+    )
     feed = feedparser.parse((FIXTURES / "source_parser_v1.xml").read_bytes())
     monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.parse_feed", lambda _: feed)
     scraper = AgencyFeedScraper(agency)
-    items = scraper.fetch(datetime(2026, 9, 23, tzinfo=timezone.utc))
+    items = scraper.fetch(datetime(2026, 9, 23, tzinfo=UTC))
     assert len(items) == 1
     assert scraper.candidate_count == 2
     assert items[0].content_type == "judgment"
 
 
 def test_feed_with_only_malformed_in_range_entry_is_degraded(monkeypatch):
-    agency = Agency("官方機關", "Official", "court-test:judgments", "https://official.example", feeds=("https://official.example/feed",))
+    agency = Agency(
+        "官方機關",
+        "Official",
+        "court-test:judgments",
+        "https://official.example",
+        feeds=("https://official.example/feed",),
+    )
     feed = feedparser.parse((FIXTURES / "source_parser_v1.xml").read_bytes())
     feed.entries = feed.entries[1:]
     monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.parse_feed", lambda _: feed)
     scraper = AgencyFeedScraper(agency)
-    items = scraper.fetch(datetime(2026, 9, 23, tzinfo=timezone.utc))
+    items = scraper.fetch(datetime(2026, 9, 23, tzinfo=UTC))
     assert items == []
     assert any("解析為零筆" in warning for warning in scraper.source_warnings)
 
 
 def test_official_page_with_recent_date_but_no_records_warns(monkeypatch):
-    agency = Agency("官方機關", "Official", "TEST", "https://official.example", official_pages=("https://official.example/archive",))
+    agency = Agency(
+        "官方機關", "Official", "TEST", "https://official.example", official_pages=("https://official.example/archive",)
+    )
     monkeypatch.setattr(
         "UK_news_scraper.scrapers.ministry.registry.get_text",
         lambda _: "<html><body><h1>Archive</h1><time datetime='2026-09-23'>23 September 2026</time></body></html>",
     )
-    scraper = AgencyFeedScraper(agency, until=datetime(2026, 9, 24, tzinfo=timezone.utc))
-    assert scraper.fetch(datetime(2026, 9, 23, tzinfo=timezone.utc)) == []
+    scraper = AgencyFeedScraper(agency, until=datetime(2026, 9, 24, tzinfo=UTC))
+    assert scraper.fetch(datetime(2026, 9, 23, tzinfo=UTC)) == []
     assert scraper.candidate_count == 1
     assert any("解析為零筆" in warning for warning in scraper.source_warnings)
 
@@ -79,9 +95,8 @@ def test_retry_after_is_bounded_by_run_deadline(monkeypatch):
             return _response(429, retry_after="100")
 
     monkeypatch.setattr(async_client, "get_session", lambda: Session())
-    with async_client.request_deadline(monotonic() + 1):
-        with pytest.raises(DownloadError, match="延後重試"):
-            async_client.get_text("https://official.example/feed")
+    with async_client.request_deadline(monotonic() + 1), pytest.raises(DownloadError, match="延後重試"):
+        async_client.get_text("https://official.example/feed")
 
 
 def test_requests_to_same_host_never_exceed_two_in_flight(monkeypatch):

@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import requests
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 import hashlib
-from requests.adapters import HTTPAdapter
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from threading import Lock, Semaphore, local
 from time import monotonic, sleep
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
+
+import requests
+from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from ..config import DEFAULT_RETRY_TOTAL, DEFAULT_TIMEOUT_SECONDS, USER_AGENT
 from ..errors import DownloadError, ParseError
 from ..models import EndpointObservation
-
 
 _THREAD_LOCAL = local()
 _HOST_LOCK = Lock()
@@ -24,7 +25,7 @@ MAX_REQUESTS_PER_HOST = 2
 
 
 @contextmanager
-def trace_requests():
+def trace_requests() -> Iterator[list[EndpointObservation]]:
     previous = getattr(_THREAD_LOCAL, "observations", None)
     observations: list[EndpointObservation] = []
     _THREAD_LOCAL.observations = observations
@@ -35,7 +36,7 @@ def trace_requests():
 
 
 @contextmanager
-def request_deadline(deadline: float | None):
+def request_deadline(deadline: float | None) -> Iterator[None]:
     previous = getattr(_THREAD_LOCAL, "deadline", None)
     _THREAD_LOCAL.deadline = deadline
     try:
@@ -45,11 +46,11 @@ def request_deadline(deadline: float | None):
 
 
 def current_request_deadline() -> float | None:
-    return getattr(_THREAD_LOCAL, "deadline", None)
+    return cast(float | None, getattr(_THREAD_LOCAL, "deadline", None))
 
 
 def _remaining(timeout: float) -> float:
-    deadline = getattr(_THREAD_LOCAL, "deadline", None)
+    deadline = current_request_deadline()
     if deadline is None:
         return timeout
     remaining = deadline - monotonic()
@@ -71,7 +72,7 @@ def _retry_after(response: requests.Response) -> float:
     if raw.isdecimal():
         return float(raw)
     try:
-        return max(0.0, (parsedate_to_datetime(raw) - datetime.now(timezone.utc)).total_seconds())
+        return max(0.0, (parsedate_to_datetime(raw) - datetime.now(UTC)).total_seconds())
     except (TypeError, ValueError, OverflowError):
         return 1.0
 
@@ -110,15 +111,17 @@ def _observe(url: str, response: requests.Response | None) -> None:
     parts = urlsplit(url)
     endpoint = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
     body = response.content if response is not None else b""
-    observations.append(EndpointObservation(
-        url=endpoint,
-        status_code=response.status_code if response is not None else 0,
-        fetched_at=datetime.now(timezone.utc).isoformat(),
-        response_sha256=hashlib.sha256(body).hexdigest() if response is not None else "",
-        etag=response.headers.get("ETag", "") if response is not None else "",
-        last_modified=response.headers.get("Last-Modified", "") if response is not None else "",
-        bytes_count=len(body),
-    ))
+    observations.append(
+        EndpointObservation(
+            url=endpoint,
+            status_code=response.status_code if response is not None else 0,
+            fetched_at=datetime.now(UTC).isoformat(),
+            response_sha256=hashlib.sha256(body).hexdigest() if response is not None else "",
+            etag=response.headers.get("ETag", "") if response is not None else "",
+            last_modified=response.headers.get("Last-Modified", "") if response is not None else "",
+            bytes_count=len(body),
+        )
+    )
 
 
 def _build_session() -> requests.Session:
@@ -194,10 +197,8 @@ def _looks_like_cloudflare_challenge(text: str) -> bool:
 def _get_text_with_browser_tls(url: str, timeout: int) -> str:
     try:
         from curl_cffi import requests as curl_requests
-    except ImportError:
-        raise requests.HTTPError(
-            f"403 Forbidden and curl_cffi is not installed for browser-like retry: {url}"
-        )
+    except ImportError as exc:
+        raise requests.HTTPError(f"403 Forbidden and curl_cffi is not installed for browser-like retry: {url}") from exc
 
     slot = _host_slot(url)
     if not slot.acquire(timeout=_remaining(timeout)):
@@ -214,8 +215,8 @@ def _get_text_with_browser_tls(url: str, timeout: int) -> str:
         )
     finally:
         slot.release()
-    _observe(url, response)
+    _observe(url, cast(requests.Response, response))
     if response.status_code == 403 and _looks_like_cloudflare_challenge(response.text):
         raise requests.HTTPError(f"403 Forbidden Cloudflare challenge: {url}")
-    response.raise_for_status()
+    response.raise_for_status()  # type: ignore[no-untyped-call]
     return response.text

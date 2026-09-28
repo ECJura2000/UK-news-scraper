@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import sys
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from .config import AGENCIES, TOPIC_RULES
-
 
 PROFILE_SCHEMA_VERSION = 1
 DEFAULT_PROFILE_ID = "uk-tech-law"
@@ -92,17 +91,25 @@ def default_profile() -> FilterProfile:
     topics = tuple(
         ProfileTopic(
             name=rule.name,
-            keywords=tuple(
-                KeywordDefinition(keyword, _default_strength(keyword))
-                for keyword in rule.keywords
-            ),
+            keywords=tuple(KeywordDefinition(keyword, _default_strength(keyword)) for keyword in rule.keywords),
         )
         for rule in TOPIC_RULES
     )
     sources = (
-        "BIST", "DCMS", "AISI", "ICO", "CMA", "UK IPO", "GDS",
-        "Ofcom", "NCSC", "Electoral Commission", "Cabinet Office", "NPSA",
-        "UKRI", PARLIAMENT_SOURCE_ID,
+        "BIST",
+        "DCMS",
+        "AISI",
+        "ICO",
+        "CMA",
+        "UK IPO",
+        "GDS",
+        "Ofcom",
+        "NCSC",
+        "Electoral Commission",
+        "Cabinet Office",
+        "NPSA",
+        "UKRI",
+        PARLIAMENT_SOURCE_ID,
     )
     return FilterProfile(
         profile_id=DEFAULT_PROFILE_ID,
@@ -379,7 +386,7 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _quarantine_invalid_file(path: Path) -> Path | None:
     if not path.exists():
         return None
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     recovery = path.with_name(f"{path.stem}.corrupt-{timestamp}{path.suffix}")
     try:
         path.replace(recovery)

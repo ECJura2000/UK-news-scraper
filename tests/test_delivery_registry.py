@@ -67,10 +67,8 @@ def test_legacy_run_id_record_blocks_old_period_resend(tmp_path):
 def test_run_lock_rejects_second_holder(tmp_path):
     lock = tmp_path / "run.lock"
 
-    with exclusive_lock(lock):
-        with pytest.raises(LockUnavailable):
-            with exclusive_lock(lock):
-                pass
+    with exclusive_lock(lock), pytest.raises(LockUnavailable), exclusive_lock(lock):
+        pass
 
 
 def test_claim_status_and_confirmed_recovery(tmp_path):

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from UK_news_scraper.app_service import (
     ExportOptionsRequest,
@@ -15,8 +15,8 @@ from UK_news_scraper.profiles import (
     KeywordStrength,
     ProfileTopic,
 )
-from UK_news_scraper.scrapers.ministry.status import AgencyFetchStatus, FetchAllResult
 from UK_news_scraper.run_summary import RunSummary
+from UK_news_scraper.scrapers.ministry.status import AgencyFetchStatus, FetchAllResult
 
 
 def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp_path):
@@ -26,7 +26,7 @@ def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp
         "BIST",
         "Digital health framework announced",
         "https://example.com/news",
-        datetime(2026, 7, 20, tzinfo=timezone.utc),
+        datetime(2026, 7, 20, tzinfo=UTC),
     )
     profile = FilterProfile(
         profile_id="digital-health",
@@ -117,7 +117,7 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
         "BIST",
         "Old BIST item",
         "https://example.com/old-bist",
-        datetime(2026, 7, 20, tzinfo=timezone.utc),
+        datetime(2026, 7, 20, tzinfo=UTC),
     )
     ico = NewsItem(
         "英國資訊專員辦公室 (ICO)",
@@ -125,7 +125,7 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
         "ICO",
         "ICO item",
         "https://example.com/ico",
-        datetime(2026, 7, 21, tzinfo=timezone.utc),
+        datetime(2026, 7, 21, tzinfo=UTC),
     )
     new_bist = NewsItem(
         old_bist.agency,
@@ -133,7 +133,7 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
         old_bist.unit_category,
         "New BIST item",
         "https://example.com/new-bist",
-        datetime(2026, 7, 22, tzinfo=timezone.utc),
+        datetime(2026, 7, 22, tzinfo=UTC),
     )
     profile = FilterProfile(
         profile_id="retry-test",
@@ -183,7 +183,7 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
     monkeypatch.setattr(
         "UK_news_scraper.app_service.fetch_all_with_status",
         lambda since, max_workers, agencies, until=None, deadline=None: FetchAllResult(
-        items=[new_bist],
+            items=[new_bist],
             statuses=[
                 AgencyFetchStatus(
                     agency_name="BIST",

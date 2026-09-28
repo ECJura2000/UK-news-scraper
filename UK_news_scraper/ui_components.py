@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date
 import os
 import tkinter as tk
+from collections.abc import Callable
+from contextlib import suppress
+from datetime import date
 from tkinter import ttk
-from typing import Callable
+from typing import Any, cast
 
 from .calendar_utils import CalendarMode, gregorian_to_roc
 from .font_policy import CHINESE_FONT, ENGLISH_FONT
-
 
 COLORS = {
     "paper": "#F7F3E8",
@@ -34,12 +35,11 @@ def enable_high_dpi() -> None:
     try:
         import ctypes
 
-        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+        windows_ctypes = cast(Any, ctypes)
+        windows_ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
     except (AttributeError, OSError):
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
-        except (AttributeError, OSError):
-            pass
+        with suppress(AttributeError, OSError):
+            windows_ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 
 def font_family() -> str:
@@ -50,7 +50,7 @@ def english_font_family() -> str:
     return ENGLISH_FONT
 
 
-def configure_relevance_tags(text_widget, colors: dict[str, str] = COLORS) -> None:
+def configure_relevance_tags(text_widget: tk.Text, colors: dict[str, str] = COLORS) -> None:
     for strength in HIGHLIGHT_PRIORITY:
         text_widget.tag_configure(strength, background=colors[strength])
     for strength in HIGHLIGHT_PRIORITY:
@@ -60,7 +60,7 @@ def configure_relevance_tags(text_widget, colors: dict[str, str] = COLORS) -> No
 class DateSelector(ttk.Frame):
     def __init__(
         self,
-        master,
+        master: tk.Misc | None,
         value: date,
         command: Callable[[], None] | None = None,
     ):
@@ -120,19 +120,14 @@ class DateSelector(ttk.Frame):
     def _refresh(self) -> None:
         current_year = date.today().year + 1
         if self._mode is CalendarMode.ROC:
-            years = [
-                f"民國{year}年"
-                for year in range(1, current_year - 1911 + 1)
-            ]
+            years = [f"民國{year}年" for year in range(1, current_year - 1911 + 1)]
             display_year = gregorian_to_roc(self._value)[0]
             year_value = f"民國{display_year}年"
         else:
             years = [str(year) for year in range(1912, current_year + 1)]
             year_value = str(self._value.year)
         self.year_box["values"] = years
-        self.month_box["values"] = [
-            f"{month:02d}月" for month in range(1, 13)
-        ]
+        self.month_box["values"] = [f"{month:02d}月" for month in range(1, 13)]
         self.year_var.set(year_value)
         self.month_var.set(f"{self._value.month:02d}月")
         self._refresh_days(self._value.day)
@@ -146,15 +141,11 @@ class DateSelector(ttk.Frame):
         except ValueError:
             year, month = self._value.year, self._value.month
         days = calendar.monthrange(year, month)[1]
-        self.day_box["values"] = [
-            f"{day:02d}日" for day in range(1, days + 1)
-        ]
+        self.day_box["values"] = [f"{day:02d}日" for day in range(1, days + 1)]
         self.day_var.set(f"{min(preferred_day, days):02d}日")
 
-    def _selection_changed(self, _event=None) -> None:
-        previous_day = int(
-            self.day_var.get().replace("日", "") or self._value.day
-        )
+    def _selection_changed(self, _event: object = None) -> None:
+        previous_day = int(self.day_var.get().replace("日", "") or self._value.day)
         self._refresh_days(previous_day)
         self._value = self.get()
         if self._command:

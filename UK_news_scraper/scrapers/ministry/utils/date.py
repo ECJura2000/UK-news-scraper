@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from time import struct_time
 
 
 def ensure_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def parse_feed_datetime(entry: object) -> datetime | None:
     for attr in ("published_parsed", "updated_parsed", "created_parsed"):
         value = getattr(entry, attr, None)
         if isinstance(value, struct_time):
-            return datetime(*value[:6], tzinfo=timezone.utc)
+            return datetime(*value[:6], tzinfo=UTC)
 
     for attr in ("published", "updated", "created", "dc_date"):
         value = getattr(entry, attr, None)
@@ -53,7 +53,7 @@ def parse_datetime_text(value: str | None) -> datetime | None:
         "%b %d, %Y",
     ):
         try:
-            return datetime.strptime(text, date_format).replace(tzinfo=timezone.utc)
+            return datetime.strptime(text, date_format).replace(tzinfo=UTC)
         except ValueError:
             continue
     return None

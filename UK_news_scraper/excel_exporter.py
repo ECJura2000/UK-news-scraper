@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from copy import copy
 from dataclasses import dataclass
-import os
 from pathlib import Path
-import re
+from typing import Any, cast
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 
 from .calendar_utils import CalendarMode, excel_number_format
 from .dedupe import dedupe_news_items, normalize_title
@@ -24,7 +25,15 @@ from .profiles import (
     profile_hash,
 )
 from .translation_cache import load_translations, save_translations
-
+from .translation_service import (
+    _translate_with_deep_translator as _translate_with_deep_translator,
+)
+from .translation_service import (
+    _translation_or_fallback as _translation_or_fallback,
+)
+from .translation_service import (
+    translate_titles_async,
+)
 
 HEADERS = ("編號", "部會", "新聞日期", "單位分類", "資料類型", "新聞標題", "新聞連結")
 MATCH_HEADERS = HEADERS + (
@@ -76,10 +85,6 @@ STRENGTH_FILLS = {
 DEFAULT_TRANSLATION_CONCURRENCY = 4
 DEFAULT_TRANSLATION_REQUEST_TIMEOUT_SECONDS = 3
 DEFAULT_TRANSLATION_BUDGET_SECONDS = 12
-MANUAL_TITLE_TRANSLATIONS = {
-    "Building more resilient CNI: what industry pen testers told us": "打造更具韌性的關鍵國家基礎設施：產業滲透測試人員的回饋",
-    "Cyber Shield: The path to an agentic AI future for cyber defence": "Cyber Shield：邁向具代理式 AI 的網路防禦未來",
-}
 
 
 @dataclass(frozen=True)
@@ -105,17 +110,13 @@ def export_news(
     parliament_items = parliament_items or []
     filtered_parliament_items = filtered_parliament_items or []
     parliament_translations = _translate_texts(
-        [
-            text
-            for item in parliament_items
-            for text in (item.title, item.summary)
-            if text
-        ],
+        [text for item in parliament_items for text in (item.title, item.summary) if text],
         content_label="國會標題或摘要",
     )
 
     wb = Workbook()
     ws_all = wb.active
+    assert isinstance(ws_all, Worksheet)
     ws_all.title = "全部新聞"
     _write_sheet(
         ws_all,
@@ -168,7 +169,7 @@ def export_news(
     return path
 
 
-def _apply_bilingual_fonts(ws, calendar_mode: CalendarMode) -> None:
+def _apply_bilingual_fonts(ws: Worksheet, calendar_mode: CalendarMode) -> None:
     for row in ws:
         for cell in row:
             if cell.value is None:
@@ -178,7 +179,7 @@ def _apply_bilingual_fonts(ws, calendar_mode: CalendarMode) -> None:
                 runs = language_runs(value)
                 if not runs:
                     continue
-                font = copy(cell.font)
+                font = cast(Font, copy(cell.font))
                 font.name = runs[0][0]
                 cell.font = font
                 if len(runs) > 1:
@@ -200,17 +201,13 @@ def _apply_bilingual_fonts(ws, calendar_mode: CalendarMode) -> None:
                         )
                     )
             else:
-                font = copy(cell.font)
-                font.name = (
-                    CHINESE_FONT
-                    if calendar_mode is CalendarMode.ROC and cell.is_date
-                    else ENGLISH_FONT
-                )
+                font = cast(Font, copy(cell.font))
+                font.name = CHINESE_FONT if calendar_mode is CalendarMode.ROC and cell.is_date else ENGLISH_FONT
                 cell.font = font
 
 
 def _write_parliament_sheet(
-    ws,
+    ws: Worksheet,
     items: list[ParliamentBriefing],
     translations: dict[str, str],
     include_matches: bool = False,
@@ -287,12 +284,12 @@ def _write_parliament_sheet(
 
         for column in (12, 13):
             cell = ws.cell(row=english_row_number, column=column)
-            if cell.value:
+            if isinstance(cell.value, str) and cell.value:
                 cell.hyperlink = cell.value
                 cell.style = "Hyperlink"
 
 
-def _style_parliament_sheet(ws) -> None:
+def _style_parliament_sheet(ws: Worksheet) -> None:
     fill = PatternFill("solid", fgColor="D9EAF7")
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -304,7 +301,7 @@ def _style_parliament_sheet(ws) -> None:
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=cell.column in (7, 9, 10, 14))
-        if row[0].row % 2 == 1:
+        if row[0].row is not None and row[0].row % 2 == 1:
             for column in (9, 10):
                 row[column - 1].font = Font(color="666666")
     ws.freeze_panes = "A2"
@@ -312,7 +309,7 @@ def _style_parliament_sheet(ws) -> None:
 
 
 def _write_filtered_sheet(
-    ws,
+    ws: Worksheet,
     news_items: list[NewsItem],
     parliament_items: list[ParliamentBriefing],
     title_translations: dict[str, str],
@@ -340,13 +337,9 @@ def _write_filtered_sheet(
     )
 
 
-def _style_filtered_sheet(ws) -> None:
+def _style_filtered_sheet(ws: Worksheet) -> None:
     news_header_row = 2
-    research_header_row = next(
-        row[0].row + 1
-        for row in ws.iter_rows()
-        if row[0].value == "研究"
-    )
+    research_header_row = next(row[0].row + 1 for row in ws.iter_rows() if row[0].value == "研究")
     for row_number in (news_header_row, research_header_row):
         for cell in ws[row_number]:
             cell.font = Font(bold=True)
@@ -361,14 +354,14 @@ def _style_filtered_sheet(ws) -> None:
     ws.freeze_panes = "A3"
 
 
-def _style_section_row(ws, row_number: int) -> None:
+def _style_section_row(ws: Worksheet, row_number: int) -> None:
     cell = ws.cell(row=row_number, column=1)
     cell.font = Font(bold=True)
     cell.fill = SECTION_FILL
 
 
 def _write_sheet(
-    ws,
+    ws: Worksheet,
     items: list[NewsItem],
     include_matches: bool,
     title_translations: dict[str, str],
@@ -455,7 +448,7 @@ def _strongest_keyword_fill(strengths: dict[str, str], fallback_level: str) -> P
 
 
 def _write_settings_sheet(
-    ws,
+    ws: Worksheet,
     profile: FilterProfile,
     calendar_mode: CalendarMode,
 ) -> None:
@@ -486,7 +479,7 @@ def _write_settings_sheet(
     ws.sheet_properties.tabColor = "E6A817"
 
 
-def _style_settings_sheet(ws) -> None:
+def _style_settings_sheet(ws: Worksheet) -> None:
     for row_number in (1, 10):
         for cell in ws[row_number]:
             cell.font = Font(bold=True, color="FFFFFF")
@@ -509,8 +502,7 @@ def _ensure_translations_present(translations: dict[str, str], items: list[NewsI
     untranslated = [
         item.title
         for item in items
-        if item.title
-        and _normalize_title(translations.get(item.title, "")) == _normalize_title(item.title)
+        if item.title and _normalize_title(translations.get(item.title, "")) == _normalize_title(item.title)
     ]
     if untranslated:
         sample = "；".join(dict.fromkeys(untranslated))
@@ -541,50 +533,27 @@ def _translate_texts(texts: list[str], content_label: str) -> dict[str, str]:
 
 def _translate_uncached_texts(unique_titles: list[str], content_label: str) -> dict[str, str]:
     try:
-        from googletrans import Translator
+        from googletrans import Translator  # type: ignore[import-untyped]
     except ImportError:
         print(f"[warn] 尚未安裝 googletrans，將保留英文{content_label}以維持執行時限。")
-        return {
-            title: translation
-            for title in unique_titles
-            if (translation := _translation_or_fallback(title, ""))
-        }
+        return {title: translation for title in unique_titles if (translation := _translation_or_fallback(title, ""))}
 
     return asyncio.run(_translate_titles_async(unique_titles, Translator, content_label))
 
 
 async def _translate_titles_async(
     unique_titles: list[str],
-    translator_class,
+    translator_class: Any,
     content_label: str,
 ) -> dict[str, str]:
-    semaphore = asyncio.Semaphore(_translation_concurrency())
-    deadline = asyncio.get_running_loop().time() + DEFAULT_TRANSLATION_BUDGET_SECONDS
-
-    async with translator_class() as translator:
-        async def translate_one(title: str) -> tuple[str, str]:
-            translated_title = ""
-            async with semaphore:
-                remaining = deadline - asyncio.get_running_loop().time()
-                if remaining <= 0:
-                    print(f"[warn] {content_label}翻譯已達 {DEFAULT_TRANSLATION_BUDGET_SECONDS} 秒時限，保留英文：{title}")
-                    return title, translated_title
-                try:
-                    translated = await asyncio.wait_for(
-                        translator.translate(title, src="en", dest="zh-tw"),
-                        timeout=min(DEFAULT_TRANSLATION_REQUEST_TIMEOUT_SECONDS, remaining),
-                    )
-                except Exception as exc:
-                    print(f"[warn] googletrans {content_label}翻譯失敗，保留英文：{title} ({exc})")
-                else:
-                    translated_title = translated.text
-            return title, translated_title
-
-        results = await asyncio.gather(*(translate_one(title) for title in unique_titles))
-    return {
-        title: _translation_or_fallback(title, translated_title)
-        for title, translated_title in results
-    }
+    return await translate_titles_async(
+        unique_titles,
+        translator_class,
+        content_label,
+        concurrency=_translation_concurrency(),
+        request_timeout=DEFAULT_TRANSLATION_REQUEST_TIMEOUT_SECONDS,
+        budget=DEFAULT_TRANSLATION_BUDGET_SECONDS,
+    )
 
 
 def _translation_concurrency() -> int:
@@ -594,96 +563,8 @@ def _translation_concurrency() -> int:
     try:
         return max(1, int(configured))
     except ValueError:
-        print(
-            "[warn] UK_NEWS_TRANSLATION_CONCURRENCY 必須是整數，"
-            f"改用預設值 {DEFAULT_TRANSLATION_CONCURRENCY}。"
-        )
+        print(f"[warn] UK_NEWS_TRANSLATION_CONCURRENCY 必須是整數，改用預設值 {DEFAULT_TRANSLATION_CONCURRENCY}。")
         return DEFAULT_TRANSLATION_CONCURRENCY
-
-
-def _translation_or_fallback(title: str, translated_title: str) -> str:
-    if translated_title and _normalize_title(translated_title) != _normalize_title(title):
-        return translated_title
-    return (
-        MANUAL_TITLE_TRANSLATIONS.get(title.strip(), "")
-        or _translate_election_statement_title(title)
-        or translated_title
-    )
-
-
-def _translate_titles_with_deep_translator(unique_titles: list[str]) -> dict[str, str]:
-    return {
-        title: _translate_with_deep_translator(title) or _translate_election_statement_title(title)
-        for title in unique_titles
-    }
-
-
-def _translate_with_deep_translator(title: str) -> str:
-    manual = MANUAL_TITLE_TRANSLATIONS.get(title.strip())
-    if manual:
-        return manual
-    try:
-        from deep_translator import GoogleTranslator
-    except ImportError:
-        print("[warn] 尚未安裝 deep-translator，無法執行備援翻譯。請先執行：pip install -r requirement.txt")
-        return ""
-
-    try:
-        translated_title = GoogleTranslator(source="en", target="zh-TW").translate(title)
-    except Exception as exc:
-        print(f"[warn] deep-translator 標題翻譯失敗：{title} ({exc})")
-        return ""
-
-    if translated_title and _normalize_title(translated_title) != _normalize_title(title):
-        return translated_title
-    return ""
-
-
-def _translate_election_statement_title(title: str) -> str:
-    match = re.fullmatch(
-        r"Post count statement\s*[-–]\s*(\d{4})\s+(.+?)\s+election",
-        title,
-        flags=re.IGNORECASE,
-    )
-    if match:
-        year, election_name = match.groups()
-        return f"計票後聲明 - {year} 年{_translate_election_name(election_name)}選舉"
-
-    match = re.fullmatch(r"Post poll statement\s*[-–]\s*(.+)", title, flags=re.IGNORECASE)
-    if match:
-        return f"投票後聲明 - {_translate_month_year(match.group(1))}"
-
-    return ""
-
-
-def _translate_election_name(name: str) -> str:
-    known_names = {
-        "scottish parliament": "蘇格蘭議會",
-        "senedd": "參議院",
-    }
-    return known_names.get(name.casefold(), name)
-
-
-def _translate_month_year(value: str) -> str:
-    months = {
-        "january": "1 月",
-        "february": "2 月",
-        "march": "3 月",
-        "april": "4 月",
-        "may": "5 月",
-        "june": "6 月",
-        "july": "7 月",
-        "august": "8 月",
-        "september": "9 月",
-        "october": "10 月",
-        "november": "11 月",
-        "december": "12 月",
-    }
-    match = re.fullmatch(r"([A-Za-z]+)\s+(\d{4})", value.strip())
-    if not match:
-        return value
-    month, year = match.groups()
-    return f"{year} 年 {months.get(month.casefold(), month)}"
 
 
 def _dedupe_for_export(items: list[NewsItem]) -> list[NewsItem]:
@@ -694,7 +575,7 @@ def _normalize_title(value: str) -> str:
     return normalize_title(value)
 
 
-def _fill_rows(ws, start_row: int, end_row: int, fill: PatternFill) -> None:
+def _fill_rows(ws: Worksheet, start_row: int, end_row: int, fill: PatternFill) -> None:
     for row in ws.iter_rows(min_row=start_row, max_row=end_row, max_col=ws.max_column):
         for cell in row:
             cell.fill = fill
@@ -706,7 +587,7 @@ def _merged_columns(include_matches: bool) -> tuple[int, ...]:
     return (1, 2, 3, 4, 5, 7)
 
 
-def _style_sheet(ws) -> None:
+def _style_sheet(ws: Worksheet) -> None:
     fill = PatternFill("solid", fgColor="D9EAF7")
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -729,7 +610,8 @@ def _style_sheet(ws) -> None:
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(vertical="center", wrap_text=cell.column == TITLE_COLUMN)
-        if row[TITLE_COLUMN - 1].row % 2 == 1:
+        row_number = row[TITLE_COLUMN - 1].row
+        if row_number is not None and row_number % 2 == 1:
             row[TITLE_COLUMN - 1].font = Font(color="666666")
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 class LockUnavailable(RuntimeError):
@@ -17,7 +18,7 @@ def exclusive_lock(
     path: str | Path,
     stale_after_seconds: int = 6 * 60 * 60,
     wait_seconds: float = 0,
-):
+) -> Iterator[Path]:
     lock_path = Path(path)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + wait_seconds
@@ -33,7 +34,7 @@ def exclusive_lock(
 
     payload = {
         "pid": os.getpid(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -41,10 +42,8 @@ def exclusive_lock(
             handle.write("\n")
         yield lock_path
     finally:
-        try:
+        with suppress(FileNotFoundError):
             lock_path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _remove_stale_lock(path: Path, stale_after_seconds: int) -> None:

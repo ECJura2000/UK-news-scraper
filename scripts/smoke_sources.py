@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import subprocess
 
-
 SOURCES = {
     "GOV.UK": "https://www.gov.uk/search/news-and-communications",
     "UK Parliament": "https://commonslibrary.parliament.uk/feed/",

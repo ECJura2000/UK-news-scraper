@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from .models import NewsItem, ParliamentBriefing
 from .profiles import FilterProfile, KeywordStrength, default_profile
 from .scrapers.ministry.utils.text import clean_text, keyword_in_text, normalize_for_match
-
 
 TITLE_WEIGHTS = {
     KeywordStrength.CORE: 6,
@@ -80,18 +79,12 @@ def assess_relevance(
     summary_topics, summary_strengths = _select_non_overlapping_matches(summary_matches)
     matched_topics = title_topics | summary_topics
 
-    score = sum(
-        TITLE_WEIGHTS[KeywordStrength(strength)]
-        for strength in title_strengths.values()
-    )
+    score = sum(TITLE_WEIGHTS[KeywordStrength(strength)] for strength in title_strengths.values())
     distinct_keywords = set(title_strengths) | set(summary_strengths)
     score += sum(
         SUMMARY_WEIGHTS[KeywordStrength(strength)]
         for keyword, strength in summary_strengths.items()
-        if not (
-            KeywordStrength(strength) is KeywordStrength.SUPPORTING
-            and keyword in title_strengths
-        )
+        if not (KeywordStrength(strength) is KeywordStrength.SUPPORTING and keyword in title_strengths)
     )
     if len({keyword.casefold() for keyword in distinct_keywords}) >= 2:
         score += 1
@@ -103,8 +96,7 @@ def assess_relevance(
             sorted(
                 keyword
                 for keyword in distinct_keywords
-                if title_strengths.get(keyword) == strength.value
-                or summary_strengths.get(keyword) == strength.value
+                if title_strengths.get(keyword) == strength.value or summary_strengths.get(keyword) == strength.value
             )
         )
         for strength in KeywordStrength
@@ -125,12 +117,12 @@ def assess_relevance(
     )
 
 
-def apply_profile_filter(
-    items: list[NewsItem] | list[ParliamentBriefing],
+def apply_profile_filter[T: NewsItem | ParliamentBriefing](
+    items: list[T],
     profile: FilterProfile | None = None,
-):
+) -> list[T]:
     active_profile = profile or default_profile()
-    filtered = []
+    filtered: list[T] = []
     for item in items:
         if isinstance(item, NewsItem):
             path = urlparse(item.link).path.strip("/").split("/")

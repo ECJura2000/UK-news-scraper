@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import date
 import hashlib
 import json
+from dataclasses import asdict, dataclass, field
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
 from .observability import RunObservability
-
 
 DATA_FINGERPRINT_VERSION = "v3"
 
@@ -51,7 +51,7 @@ def write_run_summary(summary: RunSummary, output_path: str | Path) -> Path:
     return path
 
 
-def validate_run_summary_payload(payload: object) -> dict:
+def validate_run_summary_payload(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("run summary 必須是 JSON object")
     required = {

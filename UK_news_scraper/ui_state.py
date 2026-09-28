@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
-import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, cast
 
 from .config import AGENCIES
+from .models import NewsItem, ParliamentBriefing
 from .profiles import PARLIAMENT_SOURCE_ID
 from .run_summary import validate_run_summary_payload
 
-
-ResultRow = tuple[str, Any]
+ResultRow = tuple[str, NewsItem | ParliamentBriefing]
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,7 @@ def filter_and_sort_results(
         if filters.item_type != "全部" and filters.item_type != item_type:
             continue
         searchable = (
-            f"{item.title} {item.summary} {' '.join(item.matched_topics)} "
-            f"{' '.join(item.matched_keywords)} {source}"
+            f"{item.title} {item.summary} {' '.join(item.matched_topics)} {' '.join(item.matched_keywords)} {source}"
         ).casefold()
         if query and query not in searchable:
             continue
@@ -86,7 +86,7 @@ def filter_and_sort_results(
     )
 
 
-def result_sort_value(row: ResultRow, column: str):
+def result_sort_value(row: ResultRow, column: str) -> str | int | datetime:
     item_type, item = row
     values = {
         "type": item_type.casefold(),
@@ -96,11 +96,11 @@ def result_sort_value(row: ResultRow, column: str):
         "level": {"高": 3, "中": 2, "低": 1}.get(item.relevance_level, 0),
         "title": item.title.casefold(),
     }
-    return values.get(column, item.relevance_score)
+    return cast(str | int | datetime, values.get(column, item.relevance_score))
 
 
-def item_source(item_type: str, item: Any) -> str:
-    return item.agency if item_type == "新聞" else item.publisher
+def item_source(item_type: str, item: NewsItem | ParliamentBriefing) -> str:
+    return item.agency if isinstance(item, NewsItem) else item.publisher
 
 
 def failed_source_ids(source_health: Iterable[Any]) -> tuple[str, ...]:
@@ -129,9 +129,7 @@ def load_run_history(output_dir: str | Path, limit: int = 30) -> list[RunHistory
     )
     for path in summaries:
         try:
-            payload = validate_run_summary_payload(
-                json.loads(path.read_text(encoding="utf-8"))
-            )
+            payload = validate_run_summary_payload(json.loads(path.read_text(encoding="utf-8")))
             entry = _history_entry(path, payload)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             continue
@@ -141,7 +139,7 @@ def load_run_history(output_dir: str | Path, limit: int = 30) -> list[RunHistory
     return entries
 
 
-def _history_entry(summary_path: Path, payload: dict) -> RunHistoryEntry:
+def _history_entry(summary_path: Path, payload: dict[str, Any]) -> RunHistoryEntry:
     generated_at = datetime.fromisoformat(str(payload.get("generated_at", "")))
     workbook_path = Path(str(payload["output_file"])).expanduser()
     return RunHistoryEntry(

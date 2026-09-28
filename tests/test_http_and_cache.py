@@ -1,5 +1,5 @@
-import json
 import asyncio
+import json
 from types import SimpleNamespace
 
 from UK_news_scraper import excel_exporter
@@ -69,8 +69,6 @@ def test_translation_deadline_preserves_english_when_provider_is_slow(monkeypatc
     monkeypatch.setattr(excel_exporter, "DEFAULT_TRANSLATION_REQUEST_TIMEOUT_SECONDS", 0.005)
     monkeypatch.setattr(excel_exporter, "DEFAULT_TRANSLATION_BUDGET_SECONDS", 0.01)
 
-    translated = asyncio.run(
-        _translate_titles_async(["one", "two"], SlowTranslator, "test")
-    )
+    translated = asyncio.run(_translate_titles_async(["one", "two"], SlowTranslator, "test"))
 
     assert translated == {"one": "", "two": ""}

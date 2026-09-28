@@ -809,7 +809,7 @@ class UKNewsApp(tk.Tk):
         if sys.platform == "darwin":
             subprocess.Popen(["open", str(path)])
         elif os.name == "nt":
-            os.startfile(path)
+            getattr(os, "startfile")(path)  # noqa: B009 - Windows-only API is absent from Linux os stubs.
         else:
             subprocess.Popen(["xdg-open", str(path)])
 

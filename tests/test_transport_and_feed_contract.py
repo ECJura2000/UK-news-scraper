@@ -15,6 +15,11 @@ class Response:
         self.text = text
         self.status_code = status_code
         self.payload = payload
+        self.headers = {}
+        self.content = text.encode()
+
+    def close(self):
+        pass
 
     def raise_for_status(self):
         if self.status_code >= 400:

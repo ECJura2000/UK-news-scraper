@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.2 - 2026-09-28
+
+- Split Python source-specific HTML adapters, title translation, and Tk view construction from their orchestration and export code; split Rust agency, Parliament, and fallback fetching while retaining the shared transport and source-health behavior.
+- Enforce strict mypy and Ruff E/F/I/B/UP/SIM checks in CI and Release, and raise statement coverage to at least 92% across the full Python package, including the Tk desktop UI under a virtual display.
+- Add offline contracts for source failures and degraded runs, CLI-to-workbook and `.run.json` output, translation fallback, delivery-registry transitions, and GUI controls. Three same-period Python/Rust live runs matched counts, fingerprint, status, and workbook sheets within the 60-second collection target.
+
 ## 2.3.1 - 2026-09-27
 
 - Evaluate source success rate, zero-result ratio and source p95 on every run; persist the diagnostic result in `.run.json` while keeping a legitimately quiet source distinct from a parsing failure.

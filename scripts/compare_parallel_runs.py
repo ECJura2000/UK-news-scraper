@@ -82,7 +82,9 @@ def compare(python_summary: dict, rust_summary: dict) -> dict:
         fields["observability"] = {
             "python": python_value,
             "rust": rust_value,
-            "match": python_value == rust_value and "observability" in python_summary and "observability" in rust_summary,
+            "match": python_value == rust_value
+            and "observability" in python_summary
+            and "observability" in rust_summary,
         }
     return {
         "compared_at": datetime.now(UTC).isoformat(),

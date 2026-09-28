@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from importlib.resources import files
-import json
+from typing import Any
 
 from .models import Agency
-
 
 GOVUK_LINKS = (
     "/government/news/",
@@ -20,7 +20,7 @@ GOVUK_LINKS = (
 
 
 @lru_cache(maxsize=1)
-def catalog_entries() -> tuple[dict, ...]:
+def catalog_entries() -> tuple[dict[str, Any], ...]:
     path = files("UK_news_scraper").joinpath("data/source_catalog.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema_version") != 1:

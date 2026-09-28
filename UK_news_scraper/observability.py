@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from math import ceil
-from typing import Iterable
 
 from .models import SourceHealth
-
 
 OBSERVABILITY_BUDGETS = {
     "minimum_source_success_rate": 0.90,

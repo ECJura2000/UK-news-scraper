@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
 from dataclasses import replace
+from datetime import UTC, datetime
 
 from UK_news_scraper.dedupe import dedupe_news_items
 from UK_news_scraper.excel_exporter import _dedupe_for_export
@@ -13,7 +13,7 @@ def _item(link: str) -> NewsItem:
         unit_category="A",
         title="Same title",
         link=link,
-        published_at=datetime(2026, 6, 8, tzinfo=timezone.utc),
+        published_at=datetime(2026, 6, 8, tzinfo=UTC),
     )
 
 

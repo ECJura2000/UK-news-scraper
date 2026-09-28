@@ -1,21 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from time import monotonic
-from typing import Callable
 from zoneinfo import ZoneInfo
-from concurrent.futures import ThreadPoolExecutor
 
 from .calendar_utils import CalendarMode, output_filename
 from .config import AGENCIES, DEFAULT_FETCH_BUDGET_SECONDS, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR, DEFAULT_TIMEZONE
-from .http.async_client import request_deadline
 from .dedupe import dedupe_news_items
 from .excel_exporter import ExportOptions, export_news
-from .models import NewsItem, ParliamentBriefing, RunStatus
+from .http.async_client import request_deadline
+from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
 from .observability import summarize_source_health
-from .provenance import record_provenance
 from .profiles import (
     DEFAULT_PROFILE_ID,
     PARLIAMENT_SOURCE_ID,
@@ -23,6 +22,7 @@ from .profiles import (
     default_profile,
     profile_hash,
 )
+from .provenance import record_provenance
 from .run_summary import (
     RunSummary,
     make_data_fingerprint,
@@ -33,8 +33,8 @@ from .run_summary import (
 from .runtime_lock import exclusive_lock
 from .scrapers.ministry.orchestration import fetch_all_with_status
 from .scrapers.ministry.registry import apply_parliament_topic_filter, apply_topic_filter
+from .scrapers.ministry.status import FetchAllResult
 from .scrapers.parliament import ParliamentFetchResult, fetch_parliament_briefings
-
 
 ProgressCallback = Callable[["ProgressEvent"], None]
 CancelCallback = Callable[[], bool]
@@ -102,17 +102,13 @@ def execute_run(
     if retry_source_ids - set(active_profile.selected_sources):
         raise ValueError("重試來源必須包含在目前設定檔中")
     selected_source_ids = retry_source_ids or set(active_profile.selected_sources)
-    selected_agencies = tuple(
-        agency for agency in AGENCIES if agency.short_name in selected_source_ids
-    )
+    selected_agencies = tuple(agency for agency in AGENCIES if agency.short_name in selected_source_ids)
     include_parliament = PARLIAMENT_SOURCE_ID in selected_source_ids
     since = _local_midnight(request.period_start)
     until = _local_midnight(request.period_end + timedelta(days=1))
     base_run_id = make_run_id(request.period_start, request.period_end)
     run_id = (
-        base_run_id
-        if active_profile.profile_id == DEFAULT_PROFILE_ID
-        else f"{base_run_id}-{active_profile.profile_id}"
+        base_run_id if active_profile.profile_id == DEFAULT_PROFILE_ID else f"{base_run_id}-{active_profile.profile_id}"
     )
     output = request.output_path or (
         request.output_dir
@@ -142,14 +138,16 @@ def execute_run(
                 deadline=fetch_deadline,
             )
             parliament_future = (
-                executor.submit(_fetch_parliament_with_deadline, since, fetch_deadline)
-                if include_parliament
-                else None
+                executor.submit(_fetch_parliament_with_deadline, since, fetch_deadline) if include_parliament else None
             )
             fetch_result = agency_future.result()
-            parliament_result = parliament_future.result() if parliament_future else ParliamentFetchResult(
-                items=[],
-                source_mode="未選取",
+            parliament_result = (
+                parliament_future.result()
+                if parliament_future
+                else ParliamentFetchResult(
+                    items=[],
+                    source_mode="未選取",
+                )
             )
         _check_cancelled(cancelled)
         fetched_items = _filter_until(fetch_result.items, until)
@@ -205,7 +203,7 @@ def execute_run(
             status, warnings = evaluate_run_status(fetch_result, parliament_result)
         data_fingerprint = make_data_fingerprint(all_items, parliament_items)
         delivery_id = make_delivery_id(run_id, status, data_fingerprint)
-        generated_at = datetime.now(timezone.utc).isoformat()
+        generated_at = datetime.now(UTC).isoformat()
         summary = RunSummary(
             run_id=run_id,
             generated_at=generated_at,
@@ -244,16 +242,15 @@ def execute_run(
         )
 
 
-def _fetch_parliament_with_deadline(since: datetime, deadline: float):
+def _fetch_parliament_with_deadline(since: datetime, deadline: float) -> ParliamentFetchResult:
     with request_deadline(deadline):
         return fetch_parliament_briefings(since)
 
 
-def evaluate_run_status(fetch_result, parliament_result) -> tuple[RunStatus, list[str]]:
-    warnings = [
-        f"{status.agency_name}：{status.error}"
-        for status in fetch_result.failed_statuses
-    ]
+def evaluate_run_status(
+    fetch_result: FetchAllResult, parliament_result: ParliamentFetchResult
+) -> tuple[RunStatus, list[str]]:
+    warnings = [f"{status.agency_name}：{status.error}" for status in fetch_result.failed_statuses]
     warnings.extend(parliament_result.warnings)
     warnings.extend(
         health.warning
@@ -265,7 +262,7 @@ def evaluate_run_status(fetch_result, parliament_result) -> tuple[RunStatus, lis
     return RunStatus.DEGRADED, warnings
 
 
-def evaluate_source_health(source_health) -> tuple[RunStatus, list[str]]:
+def evaluate_source_health(source_health: Sequence[SourceHealth]) -> tuple[RunStatus, list[str]]:
     warnings = [health.warning for health in source_health if health.warning]
     if all(health.success and not health.warning for health in source_health):
         return RunStatus.COMPLETE, warnings
@@ -279,11 +276,7 @@ def _merge_news_items(
 ) -> list[NewsItem]:
     if not retry_source_ids or base_result is None:
         return dedupe_news_items(fetched_items)
-    preserved = [
-        item
-        for item in base_result.all_items
-        if _news_source_id(item) not in retry_source_ids
-    ]
+    preserved = [item for item in base_result.all_items if _news_source_id(item) not in retry_source_ids]
     return dedupe_news_items([*preserved, *fetched_items])
 
 
@@ -302,10 +295,10 @@ def _merge_parliament_items(
 
 def _merge_source_health(
     base_result: RunResult | None,
-    news_health,
-    parliament_health,
+    news_health: Sequence[SourceHealth],
+    parliament_health: Sequence[SourceHealth],
     retry_source_ids: set[str],
-):
+) -> tuple[SourceHealth, ...]:
     current = list(news_health) + list(parliament_health)
     if not retry_source_ids or base_result is None:
         return tuple(current)
@@ -317,9 +310,7 @@ def _merge_source_health(
     combined = [*preserved, *current]
     order = {
         source: index
-        for index, source in enumerate(
-            [agency.short_name for agency in AGENCIES] + [PARLIAMENT_SOURCE_ID]
-        )
+        for index, source in enumerate([agency.short_name for agency in AGENCIES] + [PARLIAMENT_SOURCE_ID])
     }
     return tuple(
         sorted(
@@ -354,12 +345,12 @@ def _check_cancelled(callback: CancelCallback | None) -> None:
         raise RunCancelled("使用者已取消本次執行")
 
 
-def _filter_until(items, until: datetime):
+def _filter_until[T: NewsItem | ParliamentBriefing](items: Sequence[T], until: datetime) -> list[T]:
     return [item for item in items if item.published_at < until]
 
 
 def _local_midnight(value: date) -> datetime:
-    return datetime.combine(value, time.min, tzinfo=LOCAL_TIMEZONE).astimezone(timezone.utc)
+    return datetime.combine(value, time.min, tzinfo=LOCAL_TIMEZONE).astimezone(UTC)
 
 
 def _emit(

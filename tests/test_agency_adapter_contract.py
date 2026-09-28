@@ -57,8 +57,7 @@ def test_feed_failure_keeps_official_html_and_warning(monkeypatch):
             "<time datetime='2026-09-20'></time></article>"
         ),
         "https://official.example/guidance/one": (
-            "<h1>New official digital guidance published</h1>"
-            "<time datetime='2026-09-20'></time><p>Guidance summary</p>"
+            "<h1>New official digital guidance published</h1><time datetime='2026-09-20'></time><p>Guidance summary</p>"
         ),
     }
     monkeypatch.setattr(registry, "get_text", pages.__getitem__)
@@ -162,7 +161,7 @@ def test_official_page_excludes_external_and_undated_links():
         '<meta property="article:published_time" content="2026-09-20">',
         '<script type="application/ld+json">{"datePublished":"2026-09-20"}</script>',
         '<script type="application/ld+json">[{"dateCreated":"2026-09-20"}]</script>',
-        '<p>Updated: 20 September 2026</p>',
+        "<p>Updated: 20 September 2026</p>",
     ],
 )
 def test_official_metadata_dates_accept_supported_formats(markup):
@@ -197,7 +196,9 @@ def test_google_news_fallback_filters_unrelated_election_titles(monkeypatch):
 
 def test_generic_page_read_error_isolated_from_healthy_official_page(monkeypatch):
     scraper = registry.AgencyFeedScraper(
-        _agency(news_pages=("https://official.example/news",), official_pages=("https://official.example/guidance/one",))
+        _agency(
+            news_pages=("https://official.example/news",), official_pages=("https://official.example/guidance/one",)
+        )
     )
     monkeypatch.setattr(registry, "discover_feed_urls", lambda _url: [])
 

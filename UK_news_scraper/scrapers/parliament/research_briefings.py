@@ -1,29 +1,28 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 import html
 import os
 import re
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from time import monotonic
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
-from ...http.async_client import current_request_deadline, get_json, get_text, request_deadline, trace_requests
 from ...external_schemas import validate_parliament_api_payload
+from ...http.async_client import current_request_deadline, get_json, get_text, request_deadline, trace_requests
 from ...models import EndpointObservation, ParliamentBriefing, SourceHealth
 from ...rss import parse_feed
 from ..ministry.utils.date import parse_datetime_text, parse_feed_datetime
 from ..ministry.utils.text import clean_text
 
-
 BASE_URL = "https://lda.data.parliament.uk/researchbriefings.json"
 LORDS_SCIENCE_TECHNOLOGY_URL = (
-    "https://lordslibrary.parliament.uk/topic/"
-    "science-environment/science-environment-science-technology/"
+    "https://lordslibrary.parliament.uk/topic/science-environment/science-environment-science-technology/"
 )
 TOPIC_ARCHIVE_SOURCES = (
     (
@@ -72,18 +71,19 @@ class ParliamentFetchResult:
     def all_successful(self) -> bool:
         if not self.source_health:
             return not self.failed_sources
-        return all(
-            health.success and not health.warning
-            for health in self.source_health
-            if health.critical
-        )
+        return all(health.success and not health.warning for health in self.source_health if health.critical)
 
     @property
     def has_usable_data(self) -> bool:
         return bool(self.items)
 
 
-def _traced_fetch(fn, *args, _request_deadline=None, **kwargs):
+def _traced_fetch(
+    fn: Callable[..., list[ParliamentBriefing]],
+    *args: Any,
+    _request_deadline: float | None = None,
+    **kwargs: Any,
+) -> tuple[list[ParliamentBriefing], tuple[EndpointObservation, ...], Exception | None]:
     with request_deadline(_request_deadline), trace_requests() as observations:
         try:
             items = fn(*args, **kwargs)
@@ -104,24 +104,30 @@ def fetch_parliament_briefings(
     deadline = current_request_deadline()
     if os.environ.get("UK_PARLIAMENT_TRY_API") == "1":
         started_at = monotonic()
-        items, api_endpoints, api_error = _traced_fetch(
+        api_items, api_endpoints, api_error = _traced_fetch(
             _fetch_api, since, page_size=page_size, max_pages=max_pages, _request_deadline=deadline
         )
         try:
             if api_error is not None:
                 raise api_error
-            if not items:
+            if not api_items:
                 raise RuntimeError("API 未回傳指定期間內的 research briefings")
-            print(f"[info] UK Parliament Research Briefings API：{len(items)} 筆")
+            print(f"[info] UK Parliament Research Briefings API：{len(api_items)} 筆")
             successful_sources.append("Research Briefings API")
             source_health.append(
-                _source_health("Research Briefings API", False, True, items, monotonic() - started_at, since=since, endpoints=api_endpoints)
+                _source_health(
+                    "Research Briefings API",
+                    False,
+                    True,
+                    api_items,
+                    monotonic() - started_at,
+                    since=since,
+                    endpoints=api_endpoints,
+                )
             )
-            _extend_with_topic_archives(
-                items, since, warnings, successful_sources, failed_sources, source_health
-            )
+            _extend_with_topic_archives(api_items, since, warnings, successful_sources, failed_sources, source_health)
             return ParliamentFetchResult(
-                items=_dedupe(items),
+                items=_dedupe(api_items),
                 source_mode="Research Briefings API + official topic archives",
                 warnings=warnings,
                 successful_sources=successful_sources,
@@ -133,7 +139,16 @@ def fetch_parliament_briefings(
             warnings.append(warning)
             failed_sources.append("Research Briefings API")
             source_health.append(
-                _source_health("Research Briefings API", False, False, [], monotonic() - started_at, warning, since=since, endpoints=api_endpoints)
+                _source_health(
+                    "Research Briefings API",
+                    False,
+                    False,
+                    [],
+                    monotonic() - started_at,
+                    warning,
+                    since=since,
+                    endpoints=api_endpoints,
+                )
             )
             print(f"[warn] {warning}")
     else:
@@ -144,12 +159,15 @@ def fetch_parliament_briefings(
     # network waits together, while parallel reads preserve the same records.
     with ThreadPoolExecutor(max_workers=len(RSS_SOURCES)) as executor:
         futures = {
-            publisher: (executor.submit(_traced_fetch, _fetch_rss, publisher, feed_url, since, _request_deadline=deadline), monotonic())
+            publisher: (
+                executor.submit(_traced_fetch, _fetch_rss, publisher, feed_url, since, _request_deadline=deadline),
+                monotonic(),
+            )
             for publisher, feed_url in RSS_SOURCES.items()
         }
-        for publisher, feed_url in RSS_SOURCES.items():
+        for publisher in RSS_SOURCES:
             future, started_at = futures[publisher]
-            endpoints = ()
+            endpoints: tuple[EndpointObservation, ...] = ()
             try:
                 feed_items, endpoints, error = future.result()
                 if error is not None:
@@ -159,7 +177,16 @@ def fetch_parliament_briefings(
                 warnings.append(warning)
                 failed_sources.append(f"{publisher} RSS")
                 source_health.append(
-                    _source_health(f"{publisher} RSS", True, False, [], monotonic() - started_at, warning, since=since, endpoints=endpoints)
+                    _source_health(
+                        f"{publisher} RSS",
+                        True,
+                        False,
+                        [],
+                        monotonic() - started_at,
+                        warning,
+                        since=since,
+                        endpoints=endpoints,
+                    )
                 )
                 print(f"[warn] {warning}")
                 continue
@@ -179,9 +206,7 @@ def fetch_parliament_briefings(
                 )
             )
             items.extend(feed_items)
-    _extend_with_topic_archives(
-        items, since, warnings, successful_sources, failed_sources, source_health
-    )
+    _extend_with_topic_archives(items, since, warnings, successful_sources, failed_sources, source_health)
     return ParliamentFetchResult(
         items=_dedupe(items),
         source_mode="Official RSS + official topic archives",
@@ -216,9 +241,9 @@ def _extend_with_topic_archives(
             )
             for label, archive_url, chamber, publisher in TOPIC_ARCHIVE_SOURCES
         }
-        for label, archive_url, chamber, publisher in TOPIC_ARCHIVE_SOURCES:
+        for label, _, _, _ in TOPIC_ARCHIVE_SOURCES:
             future, started_at = futures[label]
-            endpoints = ()
+            endpoints: tuple[EndpointObservation, ...] = ()
             try:
                 topic_items, endpoints, error = future.result()
                 if error is not None:
@@ -228,14 +253,31 @@ def _extend_with_topic_archives(
                 warnings.append(warning)
                 failed_sources.append(f"{label} topic archive")
                 source_health.append(
-                    _source_health(f"{label} topic archive", False, False, [], monotonic() - started_at, warning, since=since, endpoints=endpoints)
+                    _source_health(
+                        f"{label} topic archive",
+                        False,
+                        False,
+                        [],
+                        monotonic() - started_at,
+                        warning,
+                        since=since,
+                        endpoints=endpoints,
+                    )
                 )
                 print(f"[warn] {warning}")
                 continue
             print(f"[info] {label} 主題頁：{len(topic_items)} 筆")
             successful_sources.append(f"{label} topic archive")
             source_health.append(
-                _source_health(f"{label} topic archive", False, True, topic_items, monotonic() - started_at, since=since, endpoints=endpoints)
+                _source_health(
+                    f"{label} topic archive",
+                    False,
+                    True,
+                    topic_items,
+                    monotonic() - started_at,
+                    since=since,
+                    endpoints=endpoints,
+                )
             )
             items.extend(topic_items)
 
@@ -349,11 +391,7 @@ def _fetch_topic_archive(
 ) -> list[ParliamentBriefing]:
     items: list[ParliamentBriefing] = []
     for page in range(1, max_pages + 1):
-        page_url = (
-            archive_url
-            if page == 1
-            else urljoin(archive_url, f"page/{page}/")
-        )
+        page_url = archive_url if page == 1 else urljoin(archive_url, f"page/{page}/")
         soup = BeautifulSoup(get_text(page_url), "html.parser")
         page_items = [
             item
@@ -377,7 +415,7 @@ def _fetch_topic_archive(
 
 
 def _parse_topic_article(
-    article,
+    article: Tag,
     page_url: str,
     archive_url: str,
     chamber: str,
@@ -392,14 +430,8 @@ def _parse_topic_article(
     webpage_url = urljoin(page_url, str(title_link.get("href", "")))
     if not published_at or not title or not webpage_url:
         return None
-    tags = [
-        clean_text(link.get_text(" ", strip=True))
-        for link in article.select(".tag-list a[href]")
-    ]
-    type_tags = [
-        clean_text(link.get_text(" ", strip=True))
-        for link in article.select('.tag-list a[href*="/type/"]')
-    ]
+    tags = [clean_text(link.get_text(" ", strip=True)) for link in article.select(".tag-list a[href]")]
+    type_tags = [clean_text(link.get_text(" ", strip=True)) for link in article.select('.tag-list a[href*="/type/"]')]
     summary_tag = article.select_one(".card__date + p")
     identifier = _identifier(webpage_url, title)
     pdf_url = ""
@@ -507,7 +539,7 @@ def _source_health(
     if success and len(items) < minimum:
         warning = f"{source} 筆數異常：取得 {len(items)} 筆，低於健康門檻 {minimum} 筆"
     newest = max((item.published_at for item in items), default=None)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if (
         not warning
         and newest
@@ -526,6 +558,6 @@ def _source_health(
         newest_published_at=newest.isoformat() if newest else "",
         warning=warning,
         candidate_count=len(items),
-        fetched_at=endpoints[-1].fetched_at if endpoints else datetime.now(timezone.utc).isoformat(),
+        fetched_at=endpoints[-1].fetched_at if endpoints else datetime.now(UTC).isoformat(),
         endpoints=endpoints,
     )

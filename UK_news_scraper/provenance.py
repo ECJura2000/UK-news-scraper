@@ -6,7 +6,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .models import NewsItem, ParliamentBriefing, SourceHealth
 
-
 PARSER_VERSION = "v1"
 
 
@@ -52,4 +51,6 @@ def record_provenance(
         }
         for item in parliament
     )
-    return tuple(sorted(records, key=lambda record: (record["record_type"], record["source_id"], record["canonical_url"])))
+    return tuple(
+        sorted(records, key=lambda record: (record["record_type"], record["source_id"], record["canonical_url"]))
+    )

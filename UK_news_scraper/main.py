@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -20,17 +20,17 @@ from .config import (
     DEFAULT_TIMEZONE,
 )
 from .logging_utils import log_event
-from .profiles import load_profile
+from .models import NewsItem, ParliamentBriefing, RunStatus
+from .profiles import FilterProfile, load_profile
 from .runtime_lock import LockUnavailable
-
+from .scrapers.ministry.status import FetchAllResult
+from .scrapers.parliament import ParliamentFetchResult
 
 LOCAL_TIMEZONE = ZoneInfo(DEFAULT_TIMEZONE)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="抓取英國相關機關新聞稿，優先使用 RSS/Atom，並依觀測領域初步篩選。"
-    )
+    parser = argparse.ArgumentParser(description="抓取英國相關機關新聞稿，優先使用 RSS/Atom，並依觀測領域初步篩選。")
     parser.add_argument(
         "period",
         nargs="*",
@@ -95,7 +95,7 @@ def main() -> None:
     if args.check_runtime:
         _check_runtime()
         return
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since, until = _resolve_date_range(args, now)
     period_start = _local_date(since)
     period_end = _local_date(until - timedelta(microseconds=1))
@@ -113,11 +113,12 @@ def main() -> None:
 
 
 def _check_runtime() -> None:
+    import tkinter
+
     import bs4
-    import feedparser
+    import feedparser  # type: ignore[import-untyped]
     import openpyxl
     import requests
-    import tkinter
 
     from .scrapers.ministry.registry import build_scrapers
 
@@ -131,13 +132,16 @@ def _check_runtime() -> None:
         requests.__name__,
         tkinter.__name__,
     )
-    print(
-        "封裝執行環境檢查通過；"
-        f"scrapers={len(scrapers)} dependencies={','.join(dependency_names)}"
-    )
+    print(f"封裝執行環境檢查通過；scrapers={len(scrapers)} dependencies={','.join(dependency_names)}")
 
 
-def _execute_run(args, period_start, period_end, profile, calendar_mode) -> None:
+def _execute_run(
+    args: argparse.Namespace,
+    period_start: date,
+    period_end: date,
+    profile: FilterProfile,
+    calendar_mode: CalendarMode,
+) -> None:
     result = execute_run(
         RunRequest(
             period_start=period_start,
@@ -256,12 +260,10 @@ def _parse_date(value: str) -> date:
         return datetime.strptime(normalized, "%Y%m%d").date()
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", normalized):
         return date.fromisoformat(normalized)
-    raise SystemExit(
-        f"[error] 無法解析日期參數：{value}。請使用 30、20160501 或 20160501～20160515。"
-    )
+    raise SystemExit(f"[error] 無法解析日期參數：{value}。請使用 30、20160501 或 20160501～20160515。")
 
 
-def _filter_until(items, until: datetime | None):
+def _filter_until[Record: NewsItem | ParliamentBriefing](items: list[Record], until: datetime | None) -> list[Record]:
     if until is None:
         return items
     return [item for item in items if item.published_at < until]
@@ -269,16 +271,13 @@ def _filter_until(items, until: datetime | None):
 
 def _date_range_label(since: datetime, until: datetime | None, now: datetime) -> str:
     start_label = _local_date(since).isoformat().replace("-", "")
-    if until:
-        end_date = _local_date(until - timedelta(microseconds=1))
-    else:
-        end_date = _local_date(now)
+    end_date = _local_date(until - timedelta(microseconds=1)) if until else _local_date(now)
     end_label = end_date.isoformat().replace("-", "")
     return f"{start_label}-{end_label}"
 
 
 def _local_midnight(value: date) -> datetime:
-    return datetime.combine(value, time.min, tzinfo=LOCAL_TIMEZONE).astimezone(timezone.utc)
+    return datetime.combine(value, time.min, tzinfo=LOCAL_TIMEZONE).astimezone(UTC)
 
 
 def _next_local_midnight(now: datetime) -> datetime:
@@ -290,7 +289,7 @@ def _local_date(value: datetime) -> date:
     return value.astimezone(LOCAL_TIMEZONE).date()
 
 
-def _run_status(fetch_result, parliament_result) -> tuple[str, list[str]]:
+def _run_status(fetch_result: FetchAllResult, parliament_result: ParliamentFetchResult) -> tuple[RunStatus, list[str]]:
     return evaluate_run_status(fetch_result, parliament_result)
 
 

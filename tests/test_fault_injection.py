@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from UK_news_scraper.errors import DownloadError, ParseError
 from UK_news_scraper.models import Agency
@@ -22,9 +22,8 @@ def test_only_download_failure_is_retried(monkeypatch):
     monkeypatch.setattr(orchestration, "build_scrapers", lambda: [download, parse])
     monkeypatch.setattr(orchestration, "sleep", lambda _: None)
 
-    result = orchestration.fetch_all_with_status(datetime.now(timezone.utc), max_workers=2)
+    result = orchestration.fetch_all_with_status(datetime.now(UTC), max_workers=2)
 
     assert download.calls == 2
     assert parse.calls == 1
     assert len(result.failed_statuses) == 2
-

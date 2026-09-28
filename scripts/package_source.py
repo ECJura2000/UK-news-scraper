@@ -22,6 +22,7 @@ def release_version() -> str:
             return str(tomllib.load(source)["workspace"]["package"]["version"])
     return python_version
 
+
 REQUIRED_SOURCE_FILES = {
     "AGENTS.md",
     "AI_START_HERE.md",

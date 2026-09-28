@@ -1,9 +1,13 @@
 import json
 import sys
 
-
-payload = json.load(open(sys.argv[1], encoding="utf-8"))
-baseline = json.load(open(sys.argv[2], encoding="utf-8")) if len(sys.argv) > 2 else None
+with open(sys.argv[1], encoding="utf-8") as source:
+    payload = json.load(source)
+if len(sys.argv) > 2:
+    with open(sys.argv[2], encoding="utf-8") as source:
+        baseline = json.load(source)
+else:
+    baseline = None
 budgets = {"1000": 10.0, "10000": 30.0}
 for size, limit in budgets.items():
     if size not in payload["dedupe"]:

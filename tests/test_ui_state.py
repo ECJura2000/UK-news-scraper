@@ -1,5 +1,5 @@
-from datetime import date, datetime, timezone
 import json
+from datetime import UTC, date, datetime
 
 from UK_news_scraper.models import NewsItem, SourceHealth
 from UK_news_scraper.ui_components import HIGHLIGHT_PRIORITY, configure_relevance_tags
@@ -29,7 +29,7 @@ def _item(
         published_at=datetime.combine(
             published,
             datetime.min.time(),
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         ),
         summary="Policy summary",
         matched_topics=topics or [],

@@ -36,7 +36,7 @@ jobs:
           cache: npm
           cache-dependency-path: native/apps/desktop/package-lock.json
       - name: Install Linux Tauri dependencies
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb xauth
       - name: Install validation dependencies
         run: |
           python -m pip install --upgrade pip
@@ -49,9 +49,10 @@ jobs:
             test "$GITHUB_REF_NAME" = "v${version}"
           fi
           python -m ruff check .
+          python -m mypy UK_news_scraper
           python -m compileall -q UK_news_scraper run_scraper.py scripts/package_release.py scripts/package_source.py scripts/check_release_size.py
           python -m UK_news_scraper --check-runtime
-          python -m pytest -q
+          xvfb-run -a python -m pytest -q --cov=UK_news_scraper --cov-fail-under=92
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Validate desktop frontend

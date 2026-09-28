@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-
 MIB = 1024 * 1024
 
 
@@ -15,9 +14,7 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
 
-    files = [args.root] if args.root.is_file() else sorted(
-        path for path in args.root.rglob("*") if path.is_file()
-    )
+    files = [args.root] if args.root.is_file() else sorted(path for path in args.root.rglob("*") if path.is_file())
     if not files:
         parser.error(f"no release files found under {args.root}")
 
@@ -39,15 +36,10 @@ def main() -> int:
     args.manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     if oversized:
-        names = ", ".join(
-            path.name if args.root.is_file() else str(path.relative_to(args.root))
-            for path in oversized
-        )
+        names = ", ".join(path.name if args.root.is_file() else str(path.relative_to(args.root)) for path in oversized)
         raise RuntimeError(f"release files exceed {args.max_file_mib} MiB: {names}")
     if total_bytes > args.max_total_mib * MIB:
-        raise RuntimeError(
-            f"release total is {total_bytes / MIB:.2f} MiB; limit is {args.max_total_mib} MiB"
-        )
+        raise RuntimeError(f"release total is {total_bytes / MIB:.2f} MiB; limit is {args.max_total_mib} MiB")
     print(f"release size budget passed: {total_bytes / MIB:.2f} MiB")
     return 0
 

@@ -26,6 +26,14 @@ fingerprint v3, run-summary, profile, and delivery-registry contracts.
 - `uk-news-app`: orchestration, translation providers, profiles and delivery registry.
 - `native/apps/desktop`: the Tauri binary and React/TypeScript workspace.
 
+Within `uk-news-sources`, `fetch/transport.rs` owns the shared HTTP client policy;
+`fetch/agency.rs`, `fetch/parliament.rs`, and `fetch/fallback.rs` own the source
+selection and fallback rules. In the Python fallback, `http/async_client.py`
+handles requests, `scrapers/ministry/registry.py` coordinates feeds and source
+health, and `source_adapters.py` parses source-specific HTML. `translation_service.py`
+provides translated titles to `excel_exporter.py`; `ui_views.py` builds Tk
+widgets while `ui.py` controls runs, profiles, and results.
+
 ## Data-Structure Choices And Complexity
 
 | Operation | Time | Space |

@@ -48,10 +48,7 @@ def test_source_archive_contains_only_tracked_files(tmp_path):
     with ZipFile(archive) as bundle:
         assert "UKNewsScraper-9.9.9-Source/untracked.txt" not in bundle.namelist()
         assert "UKNewsScraper-9.9.9-Source/AI_START_HERE.md" in bundle.namelist()
-        assert (
-            bundle.read("UKNewsScraper-9.9.9-Source/tracked.txt").decode("utf-8")
-            == "tracked"
-        )
+        assert bundle.read("UKNewsScraper-9.9.9-Source/tracked.txt").decode("utf-8") == "tracked"
 
 
 def test_source_archive_rejects_generated_workbook(tmp_path):

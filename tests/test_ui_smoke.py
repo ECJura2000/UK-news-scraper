@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 import pytest
@@ -6,10 +7,19 @@ import pytest
 from UK_news_scraper.profiles import ProfileLoadReport, default_profile
 
 
-pytestmark = pytest.mark.skipif(
-    sys.platform.startswith("linux") and not os.environ.get("DISPLAY"),
-    reason="Tk requires a display on Linux",
-)
+def _tk_available() -> bool:
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+        return False
+    probe = subprocess.run(
+        [sys.executable, "-c", "import tkinter as tk; root = tk.Tk(); root.destroy()"],
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+    return probe.returncode == 0
+
+
+pytestmark = pytest.mark.skipif(not _tk_available(), reason="Tk requires an available graphical session")
 
 
 def test_desktop_app_builds_recovery_run_and_result_controls(monkeypatch):

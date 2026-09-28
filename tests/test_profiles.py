@@ -1,5 +1,5 @@
-from dataclasses import replace
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,6 +17,7 @@ from UK_news_scraper.profiles import (
     profile_to_dict,
     restore_default_profiles,
     save_profiles,
+    validate_profile,
 )
 
 
@@ -62,9 +63,7 @@ def test_profiles_are_saved_atomically_and_default_is_always_available(tmp_path)
 
 def test_profile_rejects_duplicate_keywords():
     payload = profile_to_dict(_custom_profile())
-    payload["topics"][0]["keywords"].append(
-        {"phrase": "DIGITAL HEALTH", "strength": "supporting"}
-    )
+    payload["topics"][0]["keywords"].append({"phrase": "DIGITAL HEALTH", "strength": "supporting"})
 
     with pytest.raises(ValueError, match="重複"):
         profile_from_dict(payload)
@@ -145,3 +144,53 @@ def test_downloadable_topic_example_is_a_valid_profile():
     assert profile.profile_id == "uk-public-sector-ai-example"
     assert len(profile.topics) == 2
     assert "UK Parliament" in profile.selected_sources
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"version": 9}, "版本"),
+        ({"profile_id": "X"}, "ID"),
+        ({"name": " "}, "名稱"),
+        ({"minimum_score": 0}, "最低分數"),
+        ({"selected_sources": ()}, "資料來源"),
+        ({"selected_sources": ("unknown",)}, "未知來源"),
+        ({"topics": ()}, "主題"),
+        ({"topics": (ProfileTopic(" ", (KeywordDefinition("valid"),)),)}, "主題名稱"),
+        ({"topics": (ProfileTopic("topic", ()),)}, "關鍵詞"),
+        ({"topics": (ProfileTopic("topic", (KeywordDefinition(" "),)),)}, "空白關鍵詞"),
+    ],
+)
+def test_profile_validation_rejects_each_invalid_domain_field(change, message):
+    with pytest.raises(ValueError, match=message):
+        validate_profile(replace(_custom_profile(), **change))
+
+
+def test_profile_storage_rejects_duplicate_ids_and_unknown_reference(tmp_path, monkeypatch):
+    destination = tmp_path / "profiles.json"
+    with pytest.raises(ValueError, match="ID 不可重複"):
+        save_profiles([_custom_profile(), _custom_profile()], destination)
+    monkeypatch.setattr("UK_news_scraper.profiles.profiles_path", lambda: destination)
+    from UK_news_scraper.profiles import load_profile
+
+    assert load_profile(None).is_default
+    with pytest.raises(ValueError, match="找不到設定檔"):
+        load_profile("missing-profile")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        {"profiles": "wrong"},
+        {"schema_version": 9, "profiles": []},
+        {"schema_version": 1, "profiles": [profile_to_dict(default_profile())]},
+    ],
+)
+def test_profile_collection_recovery_preserves_invalid_input(tmp_path, payload):
+    destination = tmp_path / "profiles.json"
+    destination.write_text(json.dumps(payload), encoding="utf-8")
+    report = load_profiles_with_recovery(destination)
+    assert report.recovery_path is not None
+    assert report.recovery_path.exists()
+    assert set(report.profiles) == {"uk-tech-law"}

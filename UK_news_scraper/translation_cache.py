@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 from threading import Lock
 
-
 _CACHE_LOCK = Lock()
 
 
@@ -26,11 +25,7 @@ def load_translations() -> dict[str, str]:
         return {}
     if not isinstance(payload, dict):
         return {}
-    return {
-        str(source): str(translation)
-        for source, translation in payload.items()
-        if source and translation
-    }
+    return {str(source): str(translation) for source, translation in payload.items() if source and translation}
 
 
 def save_translations(translations: dict[str, str]) -> None:
@@ -39,13 +34,7 @@ def save_translations(translations: dict[str, str]) -> None:
     path = cache_path()
     with _CACHE_LOCK:
         existing = load_translations()
-        existing.update(
-            {
-                source: translation
-                for source, translation in translations.items()
-                if source and translation
-            }
-        )
+        existing.update({source: translation for source, translation in translations.items() if source and translation})
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = path.with_suffix(path.suffix + ".tmp")
         temporary_path.write_text(

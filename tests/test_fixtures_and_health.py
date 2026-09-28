@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from html import escape
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -9,16 +9,15 @@ from bs4 import BeautifulSoup
 from UK_news_scraper.main import _run_status
 from UK_news_scraper.models import Agency
 from UK_news_scraper.scrapers.ministry.registry import (
+    OFCOM_GOOGLE_NEWS_QUERIES,
     AgencyFeedScraper,
     AgencyFetchStatus,
     FetchAllResult,
-    OFCOM_GOOGLE_NEWS_QUERIES,
     _health_warning,
     _is_electoral_commission_google_news_title,
 )
 from UK_news_scraper.scrapers.parliament import research_briefings
 from UK_news_scraper.scrapers.parliament.research_briefings import ParliamentFetchResult
-
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -31,7 +30,7 @@ def test_electoral_commission_fixture_parser():
     items = scraper._extract_electoral_commission_items(
         soup,
         "https://www.electoralcommission.org.uk/news",
-        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        datetime(2026, 6, 1, tzinfo=UTC),
     )
 
     assert len(items) == 1
@@ -59,7 +58,7 @@ def test_official_page_parser_captures_ncsc_guidance_page():
     items = scraper._extract_official_page_items(
         soup,
         "https://www.ncsc.gov.uk/collection/what-to-do-when-cyber-attacks-disrupt-your-organisation/recovering",
-        datetime(2026, 7, 1, tzinfo=timezone.utc),
+        datetime(2026, 7, 1, tzinfo=UTC),
     )
 
     assert len(items) == 1
@@ -93,7 +92,7 @@ def test_official_pages_are_fetched_even_when_rss_has_items(monkeypatch):
         lambda url: calls.append(url) or "<h1>Official guidance</h1><time datetime='2026-07-28'>28 July 2026</time>",
     )
 
-    items = scraper.fetch(datetime(2026, 7, 1, tzinfo=timezone.utc))
+    items = scraper.fetch(datetime(2026, 7, 1, tzinfo=UTC))
 
     assert calls == ["https://official.example/guidance/sample"]
     assert {item.content_type for item in items} == {"news", "guidance"}
@@ -121,7 +120,7 @@ def test_official_page_failure_is_retained_as_warning_when_rss_succeeds(monkeypa
 
     monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.get_text", fail)
 
-    items = scraper.fetch(datetime(2026, 7, 1, tzinfo=timezone.utc))
+    items = scraper.fetch(datetime(2026, 7, 1, tzinfo=UTC))
 
     assert len(items) == 1
     assert scraper.source_warnings
@@ -134,7 +133,7 @@ def test_commons_rss_fixture_parser(monkeypatch):
     items = research_briefings._fetch_rss(
         "House of Commons Library",
         "fixture://commons",
-        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        datetime(2026, 6, 1, tzinfo=UTC),
     )
 
     assert len(items) == 1
@@ -143,9 +142,13 @@ def test_commons_rss_fixture_parser(monkeypatch):
 
 def test_commons_rss_paginates_until_an_old_page(monkeypatch):
     recent = feedparser.parse((FIXTURES / "commons_feed.xml").read_bytes())
-    old_xml = (FIXTURES / "commons_feed.xml").read_text().replace(
-        "Mon, 08 Jun 2026 09:00:00 GMT",
-        "Mon, 01 Jun 2026 09:00:00 GMT",
+    old_xml = (
+        (FIXTURES / "commons_feed.xml")
+        .read_text()
+        .replace(
+            "Mon, 08 Jun 2026 09:00:00 GMT",
+            "Mon, 01 Jun 2026 09:00:00 GMT",
+        )
     )
     old = feedparser.parse(old_xml)
     calls: list[str] = []
@@ -160,7 +163,7 @@ def test_commons_rss_paginates_until_an_old_page(monkeypatch):
     items = research_briefings._fetch_rss(
         "House of Commons Library",
         "https://example.com/feed/",
-        datetime(2026, 6, 5, tzinfo=timezone.utc),
+        datetime(2026, 6, 5, tzinfo=UTC),
     )
 
     assert calls == ["https://example.com/feed/", "https://example.com/feed/?paged=2"]
@@ -189,7 +192,7 @@ def test_health_warning_degrades_run():
 
 def test_stale_critical_parliament_source_has_warning():
     old_item = research_briefings.ParliamentBriefing(
-        published_at=datetime.now(timezone.utc) - timedelta(days=20),
+        published_at=datetime.now(UTC) - timedelta(days=20),
         chamber="House of Commons",
         publisher="House of Commons Library",
         title="Old briefing",
@@ -204,7 +207,7 @@ def test_stale_critical_parliament_source_has_warning():
         True,
         [old_item],
         0.1,
-        since=datetime.now(timezone.utc) - timedelta(days=14),
+        since=datetime.now(UTC) - timedelta(days=14),
         maximum_age_days=14,
     )
 
@@ -212,9 +215,7 @@ def test_stale_critical_parliament_source_has_warning():
 
 
 def test_electoral_commission_google_news_filter_removes_database_noise():
-    assert _is_electoral_commission_google_news_title(
-        "Political parties accept £24.7m in donations in Q1 2026"
-    )
+    assert _is_electoral_commission_google_news_title("Political parties accept £24.7m in donations in Q1 2026")
     assert not _is_electoral_commission_google_news_title("Search criteria")
     assert not _is_electoral_commission_google_news_title("Donation summary")
 
@@ -222,7 +223,7 @@ def test_electoral_commission_google_news_filter_removes_database_noise():
 def test_ofcom_google_news_fallback_uses_multiple_queries(monkeypatch):
     agency = Agency("英國通訊管理局", "Office of Communications", "Ofcom", "https://example.com")
     scraper = AgencyFeedScraper(agency)
-    since = datetime(2026, 6, 21, tzinfo=timezone.utc)
+    since = datetime(2026, 6, 21, tzinfo=UTC)
     calls: list[str] = []
 
     def make_feed(item_title: str | None = None):
@@ -256,7 +257,7 @@ def test_ofcom_google_news_fallback_uses_multiple_queries(monkeypatch):
 
 
 def test_low_frequency_source_does_not_warn_for_zero_items():
-    since = datetime.now(timezone.utc) - timedelta(days=14)
+    since = datetime.now(UTC) - timedelta(days=14)
 
     assert _health_warning("AISI", [], since) == ""
     assert "低於健康門檻" in _health_warning("BIST", [], since)

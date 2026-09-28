@@ -1,11 +1,17 @@
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from openpyxl import load_workbook
 
 from UK_news_scraper import excel_exporter
 from UK_news_scraper.models import NewsItem, RunStatus
-from UK_news_scraper.run_summary import RunSummary, make_data_fingerprint, make_delivery_id, validate_run_summary_payload, write_run_summary
+from UK_news_scraper.run_summary import (
+    RunSummary,
+    make_data_fingerprint,
+    make_delivery_id,
+    validate_run_summary_payload,
+    write_run_summary,
+)
 
 
 def test_domain_item_to_excel_and_validated_run_summary(monkeypatch, tmp_path):
@@ -17,7 +23,7 @@ def test_domain_item_to_excel_and_validated_run_summary(monkeypatch, tmp_path):
         unit_category="TEST",
         title="Integration title",
         link="https://example.com/news",
-        published_at=datetime(2026, 6, 12, tzinfo=timezone.utc),
+        published_at=datetime(2026, 6, 12, tzinfo=UTC),
     )
     output = excel_exporter.export_news([item], [], tmp_path / "report.xlsx")
     fingerprint = make_data_fingerprint([item], [])
@@ -25,7 +31,7 @@ def test_domain_item_to_excel_and_validated_run_summary(monkeypatch, tmp_path):
     summary_path = write_run_summary(
         RunSummary(
             run_id=run_id,
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
             period_start=date(2026, 6, 12).isoformat(),
             period_end=date(2026, 6, 12).isoformat(),
             output_file=str(output),

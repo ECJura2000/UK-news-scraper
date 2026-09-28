@@ -13,6 +13,7 @@ def summary(fingerprint="abc", count=3):
         "parliament_count": 1,
         "filtered_parliament_count": 1,
         "data_fingerprint": fingerprint,
+        "status": "success",
     }
 
 
@@ -20,6 +21,7 @@ def test_compare_requires_counts_and_fingerprint_to_match():
     assert compare(summary(), summary())["logical_match"] is True
     assert compare(summary(), summary(count=4))["logical_match"] is False
     assert compare(summary(), summary(fingerprint="changed"))["logical_match"] is False
+    assert compare(summary(), {**summary(), "status": "degraded"})["logical_match"] is False
 
 
 def test_compare_catches_source_and_provenance_drift():

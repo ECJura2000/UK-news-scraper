@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from .models import Agency, TopicRule
-
 
 DEFAULT_DAYS_BACK = 14
 # The weekly automation has a one-minute collection-and-export SLO.  Individual
@@ -48,10 +47,7 @@ SOURCE_HEALTH_MAX_AGE_DAYS = {
     "NPSA": 60,
     "UKRI": 60,
 }
-USER_AGENT = (
-    "Mozilla/5.0 (compatible; UK-news-observation-scraper/1.0; "
-    "+https://www.gov.uk/)"
-)
+USER_AGENT = "Mozilla/5.0 (compatible; UK-news-observation-scraper/1.0; +https://www.gov.uk/)"
 
 
 TOPIC_RULES: tuple[TopicRule, ...] = (
@@ -283,10 +279,21 @@ AGENCIES: tuple[Agency, ...] = (
         name_en="Department for Business, Innovation, Science and Trade",
         short_name="BIST",
         homepage="https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade",
-        feeds=("https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade.atom",),
+        feeds=(
+            "https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade.atom",
+        ),
         topics=("Science & Technology", "AI", "半導體/量子技術"),
-        link_include_patterns=("/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"),
-        official_pages=("https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade",),
+        link_include_patterns=(
+            "/government/news/",
+            "/guidance/",
+            "/government/publications/",
+            "/government/consultations/",
+            "/government/research/",
+            "/government/statistics/",
+        ),
+        official_pages=(
+            "https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade",
+        ),
     ),
     Agency(
         name_zh="數位、文化、媒體及體育部",
@@ -295,7 +302,14 @@ AGENCIES: tuple[Agency, ...] = (
         homepage="https://www.gov.uk/government/organisations/department-for-culture-media-and-sport",
         feeds=("https://www.gov.uk/government/organisations/department-for-culture-media-and-sport.atom",),
         topics=("資料治理/隱私/數位身份", "數位平台", "網路安全/資安"),
-        link_include_patterns=("/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"),
+        link_include_patterns=(
+            "/government/news/",
+            "/guidance/",
+            "/government/publications/",
+            "/government/consultations/",
+            "/government/research/",
+            "/government/statistics/",
+        ),
         official_pages=("https://www.gov.uk/government/organisations/department-for-culture-media-and-sport",),
     ),
     Agency(
@@ -305,7 +319,14 @@ AGENCIES: tuple[Agency, ...] = (
         homepage="https://www.gov.uk/government/organisations/ai-safety-institute",
         feeds=("https://www.gov.uk/government/organisations/ai-safety-institute.atom",),
         topics=("AI",),
-        link_include_patterns=("/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"),
+        link_include_patterns=(
+            "/government/news/",
+            "/guidance/",
+            "/government/publications/",
+            "/government/consultations/",
+            "/government/research/",
+            "/government/statistics/",
+        ),
         official_pages=("https://www.gov.uk/government/organisations/ai-safety-institute",),
     ),
     Agency(
@@ -324,7 +345,14 @@ AGENCIES: tuple[Agency, ...] = (
         homepage="https://www.gov.uk/government/organisations/competition-and-markets-authority",
         feeds=("https://www.gov.uk/government/organisations/competition-and-markets-authority.atom",),
         topics=("AI", "數位平台"),
-        link_include_patterns=("/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"),
+        link_include_patterns=(
+            "/government/news/",
+            "/guidance/",
+            "/government/publications/",
+            "/government/consultations/",
+            "/government/research/",
+            "/government/statistics/",
+        ),
         official_pages=("https://www.gov.uk/government/organisations/competition-and-markets-authority",),
     ),
     Agency(
@@ -334,7 +362,14 @@ AGENCIES: tuple[Agency, ...] = (
         homepage="https://www.gov.uk/government/organisations/intellectual-property-office",
         feeds=("https://www.gov.uk/government/organisations/intellectual-property-office.atom",),
         topics=("AI",),
-        link_include_patterns=("/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"),
+        link_include_patterns=(
+            "/government/news/",
+            "/guidance/",
+            "/government/publications/",
+            "/government/consultations/",
+            "/government/research/",
+            "/government/statistics/",
+        ),
         official_pages=("https://www.gov.uk/government/organisations/intellectual-property-office",),
     ),
     Agency(
@@ -344,7 +379,14 @@ AGENCIES: tuple[Agency, ...] = (
         homepage="https://www.gov.uk/government/organisations/government-digital-service",
         feeds=("https://www.gov.uk/government/organisations/government-digital-service.atom",),
         topics=("AI", "資料治理/隱私/數位身份"),
-        link_include_patterns=("/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"),
+        link_include_patterns=(
+            "/government/news/",
+            "/guidance/",
+            "/government/publications/",
+            "/government/consultations/",
+            "/government/research/",
+            "/government/statistics/",
+        ),
         official_pages=("https://www.gov.uk/government/organisations/government-digital-service",),
     ),
     Agency(
@@ -388,7 +430,14 @@ AGENCIES: tuple[Agency, ...] = (
         homepage="https://www.gov.uk/government/organisations/cabinet-office",
         feeds=("https://www.gov.uk/government/organisations/cabinet-office.atom",),
         topics=("AI", "網路安全/資安"),
-        link_include_patterns=("/government/news/", "/guidance/", "/government/publications/", "/government/consultations/", "/government/research/", "/government/statistics/"),
+        link_include_patterns=(
+            "/government/news/",
+            "/guidance/",
+            "/government/publications/",
+            "/government/consultations/",
+            "/government/research/",
+            "/government/statistics/",
+        ),
         official_pages=("https://www.gov.uk/government/organisations/cabinet-office",),
     ),
     Agency(

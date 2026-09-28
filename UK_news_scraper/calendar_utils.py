@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date
 from enum import Enum
 
-
 ROC_YEAR_OFFSET = 1911
 ROC_START_DATE = date(1912, 1, 1)
 

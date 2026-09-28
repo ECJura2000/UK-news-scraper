@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 
-
 ENGLISH_FONT = "Times New Roman"
 # macOS ships BiauKaiTC as 標楷體-繁; Windows uses DFKai-SB.
 CHINESE_FONT = "BiauKaiTC" if sys.platform == "darwin" else "DFKai-SB"
@@ -11,10 +10,7 @@ CHINESE_FONT = "BiauKaiTC" if sys.platform == "darwin" else "DFKai-SB"
 def _is_chinese_character(char: str) -> bool:
     code = ord(char)
     return (
-        0x2E80 <= code <= 0x9FFF
-        or 0xF900 <= code <= 0xFAFF
-        or 0x20000 <= code <= 0x2FA1F
-        or 0xFF00 <= code <= 0xFFEF
+        0x2E80 <= code <= 0x9FFF or 0xF900 <= code <= 0xFAFF or 0x20000 <= code <= 0x2FA1F or 0xFF00 <= code <= 0xFFEF
     )
 
 

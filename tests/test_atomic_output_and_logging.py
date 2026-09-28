@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -16,7 +16,7 @@ def test_failed_excel_verification_preserves_existing_file(tmp_path, monkeypatch
         "UK_news_scraper.excel_exporter.load_workbook",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("verification failed")),
     )
-    item = NewsItem("Agency", "Agency", "A", "Title", "https://example.com", datetime(2026, 6, 8, tzinfo=timezone.utc))
+    item = NewsItem("Agency", "Agency", "A", "Title", "https://example.com", datetime(2026, 6, 8, tzinfo=UTC))
 
     with pytest.raises(RuntimeError, match="verification failed"):
         export_news([item], [], output)

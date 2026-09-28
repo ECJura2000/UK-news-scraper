@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from enum import Enum
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from .models import RunStatus
 from .run_summary import validate_run_summary_payload
 from .runtime_lock import exclusive_lock
-
 
 DEFAULT_REGISTRY = Path.home() / ".codex" / "automations" / "uk" / "sent_run_ids.json"
 
@@ -37,7 +36,7 @@ class DeliveryRecord:
     sent_at: str = ""
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "DeliveryRecord":
+    def from_dict(cls, value: dict[str, Any]) -> DeliveryRecord:
         return cls(
             state=DeliveryState(value["state"]),
             run_id=str(value["run_id"]),
@@ -53,7 +52,7 @@ class DeliveryRecord:
         return {key: value.value if isinstance(value, Enum) else value for key, value in asdict(self).items()}
 
 
-def claim_delivery(summary_path: str | Path, registry_path: str | Path = DEFAULT_REGISTRY) -> dict:
+def claim_delivery(summary_path: str | Path, registry_path: str | Path = DEFAULT_REGISTRY) -> dict[str, Any]:
     summary = validate_run_summary_payload(_read_json(Path(summary_path)))
     delivery_id = summary["delivery_id"]
     registry_path = Path(registry_path)
@@ -75,7 +74,7 @@ def claim_delivery(summary_path: str | Path, registry_path: str | Path = DEFAULT
             run_id=summary["run_id"],
             status=summary["status"],
             data_fingerprint=summary["data_fingerprint"],
-            claimed_at=datetime.now(timezone.utc).isoformat(),
+            claimed_at=datetime.now(UTC).isoformat(),
             excel_path=summary["output_file"],
         ).to_dict()
         _atomic_write_json(registry_path, registry)
@@ -86,7 +85,7 @@ def complete_delivery(
     delivery_id: str,
     message_id: str,
     registry_path: str | Path = DEFAULT_REGISTRY,
-) -> dict:
+) -> dict[str, Any]:
     registry_path = Path(registry_path)
     with exclusive_lock(registry_path.with_suffix(".lock"), wait_seconds=10):
         registry = _read_json(registry_path, default={})
@@ -96,10 +95,10 @@ def complete_delivery(
         record = DeliveryRecord.from_dict(raw_record)
         record.state = DeliveryState.SENT
         record.message_id = message_id
-        record.sent_at = datetime.now(timezone.utc).isoformat()
+        record.sent_at = datetime.now(UTC).isoformat()
         registry[delivery_id] = record.to_dict()
         _atomic_write_json(registry_path, registry)
-    return registry[delivery_id]
+    return dict(registry[delivery_id])
 
 
 def release_delivery(
@@ -121,18 +120,14 @@ def delivery_status(
     delivery_id: str | None = None,
     state: str | None = None,
     registry_path: str | Path = DEFAULT_REGISTRY,
-) -> dict:
+) -> dict[str, Any]:
     registry = _read_json(Path(registry_path), default={})
     if delivery_id:
         return {
             "delivery_id": delivery_id,
             "record": registry.get(delivery_id),
         }
-    records = {
-        key: value
-        for key, value in registry.items()
-        if not state or value.get("state") == state
-    }
+    records = {key: value for key, value in registry.items() if not state or value.get("state") == state}
     return {"count": len(records), "records": records}
 
 
@@ -140,20 +135,20 @@ def recover_claim(
     delivery_id: str,
     confirmed: bool,
     registry_path: str | Path = DEFAULT_REGISTRY,
-) -> dict:
+) -> dict[str, Any]:
     if not confirmed:
         raise ValueError("recover 需要明確確認：--confirm-release")
     released = release_delivery(delivery_id, registry_path)
     return {"delivery_id": delivery_id, "released": released}
 
 
-def _read_json(path: Path, default=None):
+def _read_json(path: Path, default: Any = None) -> Any:
     if not path.exists():
         return default
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _atomic_write_json(path: Path, payload) -> None:
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = path.with_suffix(path.suffix + ".tmp")
     temporary_path.write_text(

@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from UK_news_scraper.main import _run_status
@@ -34,7 +34,7 @@ def test_parliament_failure_makes_overall_status_degraded():
 
 
 def test_run_summary_is_machine_readable(tmp_path):
-    end = datetime(2026, 6, 8, 16, tzinfo=timezone.utc)
+    end = datetime(2026, 6, 8, 16, tzinfo=UTC)
     output = tmp_path / "report.xlsx"
     fingerprint = "a" * 64
     run_id = make_run_id(date(2026, 5, 25), date(2026, 6, 8))
@@ -69,7 +69,7 @@ def test_data_fingerprint_changes_when_visible_summary_changes():
         unit_category="A",
         title="Title",
         link="https://example.com/item",
-        published_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        published_at=datetime(2026, 6, 1, tzinfo=UTC),
         summary="Original summary",
     )
     changed = NewsItem(
@@ -92,7 +92,7 @@ def test_data_fingerprint_is_not_ambiguous_when_fields_contain_delimiters():
         unit_category=None,
         title="Title",
         link="https://example.com",
-        published_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        published_at=datetime(2026, 6, 1, tzinfo=UTC),
     )
     second = NewsItem(
         agency="A",
@@ -113,7 +113,7 @@ def test_data_fingerprint_is_independent_of_record_order():
         unit_category=None,
         title="First",
         link="https://example.com/first",
-        published_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        published_at=datetime(2026, 6, 1, tzinfo=UTC),
     )
     second = NewsItem(
         agency="B",
@@ -121,7 +121,7 @@ def test_data_fingerprint_is_independent_of_record_order():
         unit_category=None,
         title="Second",
         link="https://example.com/second",
-        published_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
+        published_at=datetime(2026, 6, 2, tzinfo=UTC),
     )
 
     assert make_data_fingerprint([first, second], []) == make_data_fingerprint([second, first], [])
@@ -129,17 +129,13 @@ def test_data_fingerprint_is_independent_of_record_order():
 
 def test_fingerprint_v3_matches_shared_rust_golden_fixture():
     fixture = json.loads(
-        (Path(__file__).parent / "fixtures" / "fingerprint_v3_golden.json").read_text(
-            encoding="utf-8"
-        )
+        (Path(__file__).parent / "fixtures" / "fingerprint_v3_golden.json").read_text(encoding="utf-8")
     )
     news = [
         NewsItem(
             **{
                 **item,
-                "published_at": datetime.fromisoformat(
-                    item["published_at"].replace("Z", "+00:00")
-                ),
+                "published_at": datetime.fromisoformat(item["published_at"].replace("Z", "+00:00")),
             }
         )
         for item in fixture["news"]
@@ -148,9 +144,7 @@ def test_fingerprint_v3_matches_shared_rust_golden_fixture():
         ParliamentBriefing(
             **{
                 **item,
-                "published_at": datetime.fromisoformat(
-                    item["published_at"].replace("Z", "+00:00")
-                ),
+                "published_at": datetime.fromisoformat(item["published_at"].replace("Z", "+00:00")),
             }
         )
         for item in fixture["parliament"]

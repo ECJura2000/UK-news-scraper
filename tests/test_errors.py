@@ -6,4 +6,3 @@ def test_only_download_errors_are_retryable():
     assert not is_retryable_error(ParseError("bad payload"))
     assert not is_retryable_error(ValidationError("bad schema"))
     assert not is_retryable_error(StorageError("disk full"))
-

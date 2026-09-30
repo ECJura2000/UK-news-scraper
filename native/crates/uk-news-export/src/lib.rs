@@ -3,7 +3,7 @@ use rust_xlsxwriter::{
     Color, Format, FormatAlign, FormatBorder, FormatUnderline, Workbook, Worksheet, XlsxError,
 };
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
 };
@@ -112,6 +112,14 @@ fn text_format(base: &Format, script: Script) -> Format {
     base.clone().set_font_name(script.font_name())
 }
 
+fn selected_layout(format: Format, selected: bool) -> Format {
+    if selected {
+        format.set_text_wrap().set_align(FormatAlign::Top)
+    } else {
+        format
+    }
+}
+
 fn write_text(
     ws: &mut Worksheet,
     row: u32,
@@ -146,8 +154,13 @@ fn write_text(
     Ok(())
 }
 
-fn merge_text(ws: &mut Worksheet, row: u32, col: u16, value: &str) -> Result<(), XlsxError> {
-    let base = Format::new();
+fn merge_text(
+    ws: &mut Worksheet,
+    row: u32,
+    col: u16,
+    value: &str,
+    base: &Format,
+) -> Result<(), XlsxError> {
     let first_script = font_runs(value)
         .first()
         .map(|run| run.0)
@@ -158,10 +171,10 @@ fn merge_text(ws: &mut Worksheet, row: u32, col: u16, value: &str) -> Result<(),
         row + 1,
         col,
         value,
-        &text_format(&base, first_script),
+        &text_format(base, first_script),
     )?;
     if font_runs(value).len() > 1 {
-        write_text(ws, row, col, value, &base, false)?;
+        write_text(ws, row, col, value, base, false)?;
     }
     Ok(())
 }
@@ -186,6 +199,45 @@ fn section_format() -> Format {
         .set_font_name(CHINESE_FONT)
         .set_bold()
         .set_background_color(Color::RGB(0xBDD7EE))
+}
+fn relevance_format(level: &str) -> Format {
+    let color = match level {
+        "高" => 0xFFD966,
+        "中" => 0xFFE699,
+        _ => 0xFFF2CC,
+    };
+    Format::new().set_background_color(Color::RGB(color))
+}
+
+fn keyword_strength_format(strength: &str) -> Format {
+    let color = match strength {
+        "core" => 0xE6A817,
+        "general" => 0xF2C94C,
+        _ => 0xFFF1B8,
+    };
+    Format::new().set_background_color(Color::RGB(color))
+}
+
+fn strongest_keyword_format(strengths: &BTreeMap<String, String>, level: &str) -> Format {
+    for strength in ["core", "general", "supporting"] {
+        if strengths.values().any(|value| value == strength) {
+            return keyword_strength_format(strength);
+        }
+    }
+    relevance_format(level)
+}
+
+fn strongest_matched_format(item: &ParliamentBriefing, matches: &[String]) -> Format {
+    for (strength, keywords) in [
+        ("core", &item.core_matched_keywords),
+        ("general", &item.general_matched_keywords),
+        ("supporting", &item.supporting_matched_keywords),
+    ] {
+        if matches.iter().any(|word| keywords.contains(word)) {
+            return keyword_strength_format(strength);
+        }
+    }
+    relevance_format(&item.relevance_level)
 }
 fn date_format(mode: CalendarMode) -> Format {
     Format::new()
@@ -241,6 +293,7 @@ pub fn export_news(
             translations,
             options.calendar_mode,
         )?;
+        style_filtered(ws)?;
     }
     {
         let ws = workbook.add_worksheet();
@@ -309,7 +362,14 @@ fn write_news(
             item.link.clone(),
         ];
         for (c, v) in values.iter().enumerate() {
-            write_text(ws, row, c as u16, v, &Format::new(), false)?;
+            write_text(
+                ws,
+                row,
+                c as u16,
+                v,
+                &selected_layout(Format::new(), matches),
+                false,
+            )?;
         }
         if matches {
             let extra = [
@@ -329,9 +389,31 @@ fn write_news(
             .get(&item.title)
             .cloned()
             .unwrap_or_else(|| item.title.clone());
-        write_text(ws, row + 1, 5, &zh, &Format::new(), false)?;
+        let title_format = selected_layout(
+            strongest_keyword_format(&item.title_keyword_strengths, &item.relevance_level),
+            matches,
+        );
+        if !item.title_matched_keywords.is_empty() {
+            write_text(ws, row, 5, &item.title, &title_format, false)?;
+            write_text(ws, row + 1, 5, &zh, &title_format, false)?;
+        } else {
+            write_text(
+                ws,
+                row + 1,
+                5,
+                &zh,
+                &selected_layout(Format::new(), matches),
+                false,
+            )?;
+        }
         for c in [0, 1, 2, 3, 4, 6] {
-            merge_text(ws, row, c, values[c as usize].as_str())?;
+            merge_text(
+                ws,
+                row,
+                c,
+                values[c as usize].as_str(),
+                &selected_layout(Format::new(), matches),
+            )?;
         }
         if matches {
             let extra = [
@@ -345,24 +427,51 @@ fn write_news(
             ];
             for (offset, value) in extra.iter().enumerate() {
                 let c = (offset + 7) as u16;
-                merge_text(ws, row, c, value)?;
+                let format = if !item.matched_keywords.is_empty() && offset < 4 {
+                    relevance_format(&item.relevance_level)
+                } else if !value.is_empty() && offset >= 4 {
+                    keyword_strength_format(["core", "general", "supporting"][offset - 4])
+                } else {
+                    Format::new()
+                };
+                merge_text(ws, row, c, value, &selected_layout(format, matches))?;
             }
             ws.write_number_with_format(
                 row,
                 10,
                 item.relevance_score as f64,
-                &Format::new().set_font_name(ENGLISH_FONT),
+                &text_format(
+                    &selected_layout(
+                        if item.matched_keywords.is_empty() {
+                            Format::new()
+                        } else {
+                            relevance_format(&item.relevance_level)
+                        },
+                        matches,
+                    ),
+                    Script::English,
+                ),
             )?;
         }
         ws.write_number_with_format(
             row,
             0,
             (i + 1) as f64,
-            &Format::new().set_font_name(ENGLISH_FONT),
+            &selected_layout(Format::new().set_font_name(ENGLISH_FONT), matches),
         )?;
-        ws.write_datetime_with_format(row, 2, item.published_at.date_naive(), &date_format(mode))?;
+        ws.write_datetime_with_format(
+            row,
+            2,
+            item.published_at.date_naive(),
+            &selected_layout(date_format(mode), matches),
+        )?;
         if !item.link.is_empty() {
-            ws.write_url_with_format(row, 6, item.link.as_str(), &url_format())?;
+            ws.write_url_with_format(
+                row,
+                6,
+                item.link.as_str(),
+                &selected_layout(url_format(), matches),
+            )?;
         }
         row += 2;
     }
@@ -402,14 +511,35 @@ fn write_parliament(
             item.fetched_from.clone(),
         ];
         for (c, v) in values.iter().enumerate() {
-            write_text(ws, row, c as u16, v, &Format::new(), false)?;
+            write_text(
+                ws,
+                row,
+                c as u16,
+                v,
+                &selected_layout(Format::new(), matches),
+                false,
+            )?;
+        }
+        let title_format = selected_layout(
+            strongest_matched_format(item, &item.title_matched_keywords),
+            matches,
+        );
+        let summary_format = selected_layout(
+            strongest_matched_format(item, &item.summary_matched_keywords),
+            matches,
+        );
+        if !item.title_matched_keywords.is_empty() {
+            write_text(ws, row, 8, &item.title, &title_format, false)?;
+        }
+        if !item.summary_matched_keywords.is_empty() {
+            write_text(ws, row, 9, &item.summary, &summary_format, false)?;
         }
         write_text(
             ws,
             row + 1,
             8,
             tr.get(&item.title).unwrap_or(&item.title),
-            &Format::new(),
+            &selected_layout(Format::new(), matches),
             false,
         )?;
         write_text(
@@ -417,7 +547,7 @@ fn write_parliament(
             row + 1,
             9,
             tr.get(&item.summary).unwrap_or(&item.summary),
-            &Format::new(),
+            &selected_layout(Format::new(), matches),
             false,
         )?;
         if matches {
@@ -435,7 +565,13 @@ fn write_parliament(
             }
         }
         for c in [0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13] {
-            merge_text(ws, row, c, &values[c as usize])?;
+            merge_text(
+                ws,
+                row,
+                c,
+                &values[c as usize],
+                &selected_layout(Format::new(), matches),
+            )?;
         }
         if matches {
             let extra = [
@@ -449,21 +585,53 @@ fn write_parliament(
             ];
             for (offset, value) in extra.iter().enumerate() {
                 let c = (offset + 14) as u16;
-                merge_text(ws, row, c, value)?;
+                let format = if !item.matched_keywords.is_empty() && offset < 4 {
+                    relevance_format(&item.relevance_level)
+                } else if !value.is_empty() && offset >= 4 {
+                    keyword_strength_format(["core", "general", "supporting"][offset - 4])
+                } else {
+                    Format::new()
+                };
+                merge_text(ws, row, c, value, &selected_layout(format, matches))?;
             }
             ws.write_number_with_format(
                 row,
                 17,
                 item.relevance_score as f64,
-                &Format::new().set_font_name(ENGLISH_FONT),
+                &text_format(
+                    &selected_layout(
+                        if item.matched_keywords.is_empty() {
+                            Format::new()
+                        } else {
+                            relevance_format(&item.relevance_level)
+                        },
+                        matches,
+                    ),
+                    Script::English,
+                ),
             )?;
         }
-        ws.write_datetime_with_format(row, 0, item.published_at.date_naive(), &date_format(mode))?;
+        ws.write_datetime_with_format(
+            row,
+            0,
+            item.published_at.date_naive(),
+            &selected_layout(date_format(mode), matches),
+        )?;
         if !item.webpage_url.is_empty() {
-            ws.write_url_with_format(row, 11, item.webpage_url.as_str(), &url_format())?;
+            ws.write_url_with_format(
+                row,
+                11,
+                item.webpage_url.as_str(),
+                &selected_layout(url_format(), matches),
+            )?;
         }
         if !item.pdf_url.is_empty() {
-            ws.write_url_with_format(row, 12, item.pdf_url.as_str(), &url_format())?;
+            ws.write_url_with_format(
+                row,
+                12,
+                item.pdf_url.as_str(),
+                &selected_layout(url_format(), matches),
+            )?;
         }
         row += 2;
     }
@@ -504,12 +672,191 @@ fn style_news(ws: &mut Worksheet) -> Result<(), XlsxError> {
     Ok(())
 }
 
+fn style_filtered(ws: &mut Worksheet) -> Result<(), XlsxError> {
+    for (column, width) in [
+        14., 38., 18., 24., 16., 80., 72., 36., 60., 12., 10., 36., 36., 36., 72., 28., 60., 12.,
+        10., 36., 36.,
+    ]
+    .iter()
+    .enumerate()
+    {
+        ws.set_column_width(column as u16, *width)?;
+    }
+    ws.set_freeze_panes(2, 0)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use calamine::{open_workbook_auto, Reader};
     use std::io::Read;
     use tempfile::tempdir;
+
+    fn xml_part(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> String {
+        let mut xml = String::new();
+        archive
+            .by_name(name)
+            .unwrap()
+            .read_to_string(&mut xml)
+            .unwrap();
+        xml
+    }
+
+    fn attribute<'a>(tag: &'a str, name: &str) -> &'a str {
+        let prefix = format!("{name}=\"");
+        tag.split(&prefix)
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+    }
+
+    fn cell_fill(sheet: &str, styles: &str, address: &str) -> String {
+        let cell = sheet
+            .split(&format!("<c r=\"{address}\""))
+            .nth(1)
+            .unwrap()
+            .split('>')
+            .next()
+            .unwrap();
+        let style_id: usize = attribute(cell, "s").parse().unwrap();
+        let xfs = styles.split("<cellXfs ").nth(1).unwrap();
+        let xf = xfs
+            .split("<xf ")
+            .nth(style_id + 1)
+            .unwrap()
+            .split("/>")
+            .next()
+            .unwrap();
+        let fill_id: usize = attribute(xf, "fillId").parse().unwrap();
+        let fills = styles.split("<fills ").nth(1).unwrap();
+        let fill = fills
+            .split("<fill>")
+            .nth(fill_id + 1)
+            .unwrap()
+            .split("</fill>")
+            .next()
+            .unwrap();
+        fill.split("<fgColor rgb=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_owned()
+    }
+
+    #[test]
+    fn relevance_shading_matches_python_reference_workbook() {
+        let dir = tempdir().unwrap();
+        let output = dir.path().join("relevance.xlsx");
+        let profile = FilterProfile {
+            profile_id: "test".into(),
+            name: "Test".into(),
+            description: String::new(),
+            version: 1,
+            selected_sources: vec!["BIST".into()],
+            topics: vec![],
+            minimum_score: 3,
+        };
+        let levels = [
+            ("A core", "高", "core", 10),
+            ("B general", "中", "general", 7),
+            ("C supporting", "低", "supporting", 4),
+        ];
+        let news: Vec<NewsItem> = levels.iter().map(|(title, level, strength, score)| {
+            serde_json::from_value(serde_json::json!({
+                "agency":"BIST", "agency_en":"BIST", "title":title,
+                "link":format!("https://example.com/{score}"),
+                "published_at":"2026-09-24T00:00:00Z",
+                "matched_topics":["AI"], "matched_keywords":[strength],
+                "title_matched_keywords":[strength],
+                "title_keyword_strengths":{(*strength):strength},
+                "core_matched_keywords":if *strength == "core" {vec![*strength]} else {vec![]},
+                "general_matched_keywords":if *strength == "general" {vec![*strength]} else {vec![]},
+                "supporting_matched_keywords":if *strength == "supporting" {vec![*strength]} else {vec![]},
+                "relevance_level":level, "relevance_score":score
+            })).unwrap()
+        }).collect();
+        let parliament: ParliamentBriefing = serde_json::from_value(serde_json::json!({
+            "published_at":"2026-09-24T00:00:00Z", "chamber":"Commons",
+            "publisher":"Commons Library", "title":"AI research", "summary":"digital policy",
+            "identifier":"test", "webpage_url":"https://example.com/research",
+            "matched_topics":["AI"], "matched_keywords":["AI","digital"],
+            "title_matched_keywords":["AI"], "summary_matched_keywords":["digital"],
+            "core_matched_keywords":["AI"], "general_matched_keywords":["digital"],
+            "relevance_level":"高", "relevance_score":10
+        }))
+        .unwrap();
+        let translations = HashMap::from([
+            ("A core".into(), "核心資料".into()),
+            ("B general".into(), "一般資料".into()),
+            ("C supporting".into(), "輔助資料".into()),
+        ]);
+        export_news(
+            &news,
+            &news,
+            &[],
+            &[parliament],
+            &translations,
+            &output,
+            ExportOptions {
+                calendar_mode: CalendarMode::Gregorian,
+                profile: &profile,
+            },
+        )
+        .unwrap();
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(&output).unwrap()).unwrap();
+        let styles = xml_part(&mut archive, "xl/styles.xml");
+        let all = xml_part(&mut archive, "xl/worksheets/sheet1.xml");
+        let selected = xml_part(&mut archive, "xl/worksheets/sheet2.xml");
+        assert!(selected.contains("ySplit=\"2\""));
+        assert!(selected.contains("min=\"6\" max=\"6\" width=\"80"));
+        assert!(selected.contains("min=\"8\" max=\"8\" width=\"36"));
+        assert!(styles.contains("wrapText=\"1\""));
+        for (row, level_color, strength_color) in [
+            (3, "FFFFD966", "FFE6A817"),
+            (5, "FFFFE699", "FFF2C94C"),
+            (7, "FFFFF2CC", "FFFFF1B8"),
+        ] {
+            for column in ["H", "I", "J", "K"] {
+                assert_eq!(
+                    cell_fill(&selected, &styles, &format!("{column}{row}")),
+                    level_color
+                );
+            }
+            assert_eq!(
+                cell_fill(&selected, &styles, &format!("F{row}")),
+                strength_color
+            );
+            assert_eq!(
+                cell_fill(&selected, &styles, &format!("F{}", row + 1)),
+                strength_color
+            );
+            let column = match row {
+                3 => "L",
+                5 => "M",
+                _ => "N",
+            };
+            assert_eq!(
+                cell_fill(&selected, &styles, &format!("{column}{row}")),
+                strength_color
+            );
+        }
+        assert_eq!(cell_fill(&all, &styles, "F2"), "FFE6A817");
+        assert_eq!(cell_fill(&selected, &styles, "I13"), "FFE6A817");
+        assert_eq!(cell_fill(&selected, &styles, "J13"), "FFF2C94C");
+        for column in ["O", "P", "Q", "R"] {
+            assert_eq!(
+                cell_fill(&selected, &styles, &format!("{column}13")),
+                "FFFFD966"
+            );
+        }
+        assert_eq!(cell_fill(&selected, &styles, "S13"), "FFE6A817");
+        assert_eq!(cell_fill(&selected, &styles, "T13"), "FFF2C94C");
+    }
 
     #[test]
     fn workbook_preserves_required_sheet_contract() {

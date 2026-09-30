@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.3 - 2026-09-30
+
+- Shade Rust Excel relevance levels and matched keyword strengths to match the Python report, including matched English titles and summaries.
+- Restore the filtered worksheet's reference column widths, wrapped text, and frozen header rows so relevance colors and long source text remain readable.
+
 ## 2.3.2 - 2026-09-28
 
 - Split Python source-specific HTML adapters, title translation, and Tk view construction from their orchestration and export code; split Rust agency, Parliament, and fallback fetching while retaining the shared transport and source-health behavior.

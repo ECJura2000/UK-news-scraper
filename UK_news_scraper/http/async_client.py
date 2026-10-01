@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from collections import deque
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from threading import Lock, Semaphore, local
+from threading import Condition, Lock, local
 from time import monotonic, sleep
 from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
@@ -20,8 +21,40 @@ from ..models import EndpointObservation
 
 _THREAD_LOCAL = local()
 _HOST_LOCK = Lock()
-_HOST_SLOTS: dict[str, Semaphore] = {}
+_HOST_SLOTS: dict[str, _HostSlots] = {}
 MAX_REQUESTS_PER_HOST = 2
+HOST_QUEUE_TIMEOUT_SECONDS = 50
+
+
+class _HostSlots:
+    """A bounded FIFO queue so later sources cannot starve waiting requests."""
+
+    def __init__(self, capacity: int) -> None:
+        self._condition = Condition()
+        self._available = capacity
+        self._waiting: deque[object] = deque()
+
+    def acquire(self, *, timeout: float) -> bool:
+        ticket = object()
+        deadline = monotonic() + timeout
+        with self._condition:
+            self._waiting.append(ticket)
+            while self._waiting[0] is not ticket or self._available == 0:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    self._waiting.remove(ticket)
+                    self._condition.notify_all()
+                    return False
+                self._condition.wait(remaining)
+            self._waiting.popleft()
+            self._available -= 1
+            self._condition.notify_all()
+            return True
+
+    def release(self) -> None:
+        with self._condition:
+            self._available += 1
+            self._condition.notify_all()
 
 
 @contextmanager
@@ -59,10 +92,10 @@ def _remaining(timeout: float) -> float:
     return min(timeout, remaining)
 
 
-def _host_slot(url: str) -> Semaphore:
+def _host_slot(url: str) -> _HostSlots:
     host = (urlsplit(url).hostname or "").lower()
     with _HOST_LOCK:
-        return _HOST_SLOTS.setdefault(host, Semaphore(MAX_REQUESTS_PER_HOST))
+        return _HOST_SLOTS.setdefault(host, _HostSlots(MAX_REQUESTS_PER_HOST))
 
 
 def _retry_after(response: requests.Response) -> float:
@@ -78,10 +111,15 @@ def _retry_after(response: requests.Response) -> float:
 
 
 def _request(url: str, *, timeout: float, headers: dict[str, str]) -> requests.Response:
+    # These official publishers reject the legacy browser/compatible user agent;
+    # the same explicit scraper identity used by the Rust client is accepted.
+    if (urlsplit(url).hostname or "").lower() in {"scrp.scot", "povertyinequality.scot"}:
+        headers = {**headers, "User-Agent": "UK-news-observation-scraper/2.0"}
     slot = _host_slot(url)
     for attempt in range(2):
-        wait = _remaining(timeout)
+        wait = _remaining(HOST_QUEUE_TIMEOUT_SECONDS)
         if not slot.acquire(timeout=wait):
+            _observe(url, None)
             raise DownloadError(f"同網域請求等待逾時：{url}")
         try:
             response = get_session().get(url, timeout=_remaining(timeout), headers=headers)
@@ -201,7 +239,7 @@ def _get_text_with_browser_tls(url: str, timeout: int) -> str:
         raise requests.HTTPError(f"403 Forbidden and curl_cffi is not installed for browser-like retry: {url}") from exc
 
     slot = _host_slot(url)
-    if not slot.acquire(timeout=_remaining(timeout)):
+    if not slot.acquire(timeout=_remaining(HOST_QUEUE_TIMEOUT_SECONDS)):
         raise DownloadError(f"同網域請求等待逾時：{url}")
     try:
         response = curl_requests.get(

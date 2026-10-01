@@ -32,6 +32,15 @@ impl Transport {
         self.client.get(url)
     }
 
+    /// Start a source's bounded request budget while sharing the run's host limits.
+    pub fn for_source(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            slots: self.slots.clone(),
+            deadline: Instant::now() + Duration::from_secs(50),
+        }
+    }
+
     pub async fn bytes(
         &self,
         builder: RequestBuilder,
@@ -59,7 +68,15 @@ impl Transport {
                 Ok(Ok(response)) => response,
                 Ok(Err(error)) => {
                     observations.push(empty_observation(endpoint_url.as_str()));
-                    return Err(error.to_string());
+                    if attempt == 0
+                        && (error.is_timeout() || error.is_connect())
+                        && Instant::now() + Duration::from_secs(1) < self.deadline
+                    {
+                        drop(_permit);
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    return Err(format!("{error:?}"));
                 }
                 Err(_) => {
                     observations.push(empty_observation(endpoint_url.as_str()));
@@ -156,5 +173,79 @@ fn empty_observation(url: &str) -> EndpointObservation {
         etag: String::new(),
         last_modified: String::new(),
         bytes_count: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    #[tokio::test]
+    async fn queued_source_renews_budget_and_preserves_host_limit() {
+        let mut run = Transport::new();
+        run.deadline = Instant::now() - Duration::from_secs(1);
+        let slot = Arc::new(Semaphore::new(2));
+        run.slots
+            .lock()
+            .await
+            .insert("www.gov.uk".into(), slot.clone());
+        let source = run.for_source();
+        assert!(source.deadline > Instant::now() + Duration::from_secs(49));
+        assert!(source.deadline <= Instant::now() + Duration::from_secs(50));
+        assert!(Arc::ptr_eq(&run.slots, &source.slots));
+        let permit = slot.acquire_owned().await.unwrap();
+        assert_eq!(
+            source.slots.lock().await["www.gov.uk"].available_permits(),
+            1
+        );
+        drop(permit);
+    }
+
+    #[tokio::test]
+    async fn transient_timeout_retries_once_and_retains_failure_evidence() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/feed", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            let (first, _) = listener.accept().unwrap();
+            thread::sleep(Duration::from_millis(200));
+            drop(first);
+            let (mut second, _) = listener.accept().unwrap();
+            second
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                second.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+                assert!(request.len() < 8192);
+            }
+            second
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .unwrap();
+        });
+        let mut transport = Transport::new();
+        transport.client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_millis(100))
+            .build()
+            .unwrap();
+        let mut observations = Vec::new();
+        assert_eq!(
+            transport
+                .bytes(transport.get(&url), &mut observations)
+                .await
+                .unwrap(),
+            b"ok"
+        );
+        server.join().unwrap();
+        assert_eq!(observations.len(), 2);
+        assert_eq!(observations[0].status_code, 0);
+        assert_eq!(observations[1].status_code, 200);
     }
 }

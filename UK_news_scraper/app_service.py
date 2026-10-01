@@ -135,7 +135,6 @@ def execute_run(
                 max_workers=request.workers,
                 agencies=selected_agencies,
                 until=until,
-                deadline=fetch_deadline,
             )
             parliament_future = (
                 executor.submit(_fetch_parliament_with_deadline, since, fetch_deadline) if include_parliament else None

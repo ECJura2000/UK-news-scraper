@@ -53,10 +53,11 @@ def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp
             )
         ],
     )
-    monkeypatch.setattr(
-        "UK_news_scraper.app_service.fetch_all_with_status",
-        lambda since, max_workers, agencies, until=None, deadline=None: fetch_result,
-    )
+    def fetch_without_run_cap(since, max_workers, agencies, until=None, **kwargs):
+        assert "deadline" not in kwargs
+        return fetch_result
+
+    monkeypatch.setattr("UK_news_scraper.app_service.fetch_all_with_status", fetch_without_run_cap)
 
     def fake_export(all_items, filtered_items, output, **kwargs):
         output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,4 @@
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Official</title><link>https://official.example/</link><description>Official feed</description>
+<item><title>Official content only announcement</title><link>https://official.example/news/content</link><pubDate>Tue, 22 Sep 2026 12:00:00 GMT</pubDate><content:encoded><![CDATA[<p>The Board's <strong>official update</strong> is published.</p>]]></content:encoded></item>
+<item><title>Official summary priority announcement</title><link>https://official.example/news/summary</link><pubDate>Tue, 22 Sep 2026 12:00:00 GMT</pubDate><description>Short official summary</description><content:encoded><![CDATA[<p>Long content should not replace the supplied summary.</p>]]></content:encoded></item>
+</channel></rss>

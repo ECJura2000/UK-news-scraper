@@ -63,7 +63,9 @@ UK_NEWS_OUTPUT_DIR=/absolute/output/path python3 -m UK_news_scraper
 
 執行摘要也會記錄來源成功率、零筆比例與來源耗時的觀測指標，以及每個來源的 HTTP 狀態、回應雜湊與擷取時間。零筆可能是該期間原本沒有發布資料，會先列為觀測提醒；如果官方頁、搜尋或 RSS 有期間內候選內容，卻完全解析不到資料，該來源會標為降級。逐筆追溯資訊包含來源 ID、原始連結、正規化連結、取得來源與解析器版本；這些附加資訊不參與資料指紋或寄送識別碼計算。
 
-抓取階段對每個網域最多同時送出兩個請求，會在剩餘時間允許時依 `Retry-After` 重試一次，並以 50 秒作為網路抓取截止時間。若上游逾時，已取得的資料仍用於報表與來源健康判斷。
+抓取階段對每個網域最多同時送出兩個請求，會在剩餘時間允許時依 `Retry-After` 重試一次。
+機關來源每次嘗試開始執行後有 50 秒的網路時間上限；呼叫端明確指定的截止時間仍是上限。
+國會來源保留 50 秒的整批預算。若上游逾時，已取得的資料仍用於報表與來源健康判斷。
 
 翻譯會使用持久快取，未命中內容預設以 4 個有限併發請求翻譯。可用
 `UK_NEWS_TRANSLATION_CONCURRENCY` 調整併發數。
@@ -169,15 +171,61 @@ python3 -m UK_news_scraper 20160501 ~ 20160515
 ## 目前納入機關
 
 桌面版的「官方來源」另有英國中央、蘇格蘭、威爾斯、北愛爾蘭與法院／審裁處名錄。
-GOV.UK 上標記為 live 的機關可透過官方搜尋 API 查詢，特定期間仍可能沒有發布資料；
-司法機關判決與公告使用其官方 RSS。當 RSS 最舊項目晚於查詢起日，報表會標為降級，
+GOV.UK 上標記為 live 的機關，以及另行查核通過的機關，可透過已確認的官方搜尋、
+RSS 或有日期新聞列表查詢，特定期間仍可能沒有發布資料。
+司法機關判決與公告使用其官方 RSS。當 RSS 或單頁列表的最舊項目晚於查詢起日，報表會標為降級，
 提示該期間可能不完整。
-名錄中尚未驗證獨立發布頁的機關只供查閱，不能加入 JSON 主題設定檔。
+v2.3.4 保留 920 筆可選取來源，依使用者要求移除另外 203 筆停用來源。
+被移除來源的查核理由與原始資料保存在 overrides 排除紀錄；未來新增來源仍須完成查核才能加入 JSON 主題設定檔。
 新增來源必須自行勾選並另存或匯入 JSON；內建每週科技法制設定維持下列原有來源。
 名錄快照在 `UK_news_scraper/data/source_catalog.json`，更新時可執行
-`python scripts/refresh_source_catalog.py` 並檢視差異。BBC 只列名，不抓取。
+`python scripts/refresh_source_catalog.py` 並檢視差異。BBC 不納入採集來源。
 英格蘭與威爾斯的法院判決目前使用司法機關 RSS；The National Archives
 Find Case Law 僅作連結參考，沒有取得大量程式查詢授權前不批次擷取。
+
+逐筆查核「僅列名」來源並保存 HTTP 狀態、回應雜湊與來源歸屬證據：
+
+```bash
+python scripts/audit_source_catalog.py
+python scripts/verify_catalog_audit.py
+python scripts/audit_source_catalog.py --apply-verified
+```
+
+查核報告與原始回應保存在 `新聞放置區/source-audit/`，可中斷後繼續。
+第二步以保存的同一份回應重播生產解析器；新增 RSS／HTML 管道必須通過
+Python 與 Rust 的逐筆標題、摘要、日期、連結和類型比對，才可在第三步開放選取。
+共用全站 RSS 不會被誤算成各機關的獨立發布來源。RSS 和單頁 HTML 列表
+只驗證目前可取得的資料，不保證任意歷史期間完整。
+加上 `--recheck-results` 可重新判讀已保存的 HTTP 證據；要進行全新的連線查核，
+請以 `--output-dir` 指定新的本機資料夾；重新查核範圍也包含曾通過查核的來源。
+
+北愛爾蘭共用任命名錄可能缺少官網連結，可先執行
+`python scripts/discover_catalog_identities.py`，再於查核指令加入
+`--identity-map 新聞放置區/source-audit/ni-identity-discovery.json`。
+機關對照必須通過官方目錄的同名連結或 GOV.UK 機關標題驗證；找到官網仍須完成端點與解析器查核。
+保存回應的解析成功不等於實際連線成功，開放選取前也應完成 Python／Rust 實際抓取。
+若實際執行明確失敗，可用 `python scripts/reconcile_catalog_runtime.py --source-id ID`
+核對本機失敗健康紀錄，改為保留停用，再執行 `--apply-verified` 套用。
+可用 `--python-evidence`、`--rust-evidence` 指定完整執行 JSON；預設要求兩套程式均有失敗證據。
+只有桌面抓取失敗時，須明確使用 `--runtimes rust`，紀錄仍會保留 Python 成功的實證。
+
+通過的端點與未通過的具體原因保存在
+`UK_news_scraper/data/source_catalog_overrides.json`，更新名錄時會重新套用。
+未知或重複 ID、缺少解析證據、政策排除與授權限制會阻止開放來源。
+若更新名錄時已查核的 ID 消失，更新會停止，保留現有名錄供人工確認。
+
+確認重複、共用採集路由或不適用的來源後，可先產生移除計畫再套用：
+
+```bash
+python scripts/cleanup_source_catalog.py
+python scripts/cleanup_source_catalog.py --apply
+```
+
+計畫保存在 `新聞放置區/source-audit/cleanup-removals.json`，包含原因、替代來源與原始名錄資料。
+套用後的排除紀錄會保存在 overrides 的 `exclusions`，下次更新名錄不會重新加入。
+共用採集路由不表示機關裁撤。預設只清理確認重複或不適用的管道；
+使用者要求移除全部停用來源時，可加上 `--remove-disabled` 產生計畫，再以 `--apply` 套用。
+這項移除不表示機關無用或已裁撤，原有停用理由仍完整保留。
 
 - BIST / DCMS / AI Security Institute / ICO / CMA / UK IPO / GDS
 - Ofcom / NCSC / Electoral Commission

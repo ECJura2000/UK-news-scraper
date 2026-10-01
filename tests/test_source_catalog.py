@@ -1,5 +1,7 @@
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
+from importlib.resources import files
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -19,7 +21,13 @@ def test_official_catalog_is_opt_in_and_covers_devolved_bodies_and_courts():
     assert {"UK", "Scotland", "Wales", "Northern Ireland", "England and Wales"} <= {
         entry["jurisdiction"] for entry in entries
     }
-    assert any(entry["id"] == "court-ew:administrative-divisional-court" for entry in entries)
+    removed_id = "court-ew:administrative-divisional-court"
+    assert removed_id not in ids
+    state = json.loads(files("UK_news_scraper").joinpath("data/source_catalog_overrides.json").read_text())
+    removed = next(item for item in state["exclusions"] if item["id"] == removed_id)
+    assert removed["original_source"]["id"] == removed_id
+    available = ids | {agency.short_name for agency in AGENCIES}
+    assert removed["replacement_sources"] and set(removed["replacement_sources"]) <= available
     assert any(entry["id"] == "court-scotland:judgments" and entry["status"] == "searchable" for entry in entries)
     assert "govuk:bbc" not in {agency.short_name for agency in AGENCIES}
     assert all(

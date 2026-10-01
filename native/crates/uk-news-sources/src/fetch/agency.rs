@@ -27,6 +27,7 @@ pub async fn fetch_agencies_with_progress(
             let transport = transport.clone();
             let progress = progress.clone();
             async move {
+                let transport = transport.for_source();
                 let started = Instant::now();
                 let mut items = vec![];
                 let mut warnings = vec![];
@@ -34,7 +35,8 @@ pub async fn fetch_agencies_with_progress(
                 let mut candidate_count = 0usize;
                 let mut observations = vec![];
                 let mut precise_out_of_period_links = std::collections::HashSet::new();
-                if let Some(slug) = agency.short_name.strip_prefix("govuk:") {
+                if crate::catalog::uses_govuk_search(&agency.short_name) {
+                    let slug = agency.short_name.strip_prefix("govuk:").unwrap();
                     match fetch_govuk_search(
                         &transport,
                         &agency,
@@ -65,7 +67,7 @@ pub async fn fetch_agencies_with_progress(
                         {
                             Ok(b) => {
                                 let mut feed_candidates = 0usize;
-                                if let Ok(feed) = parser::parse(&b[..]) {
+                                if let Ok(feed) = crate::parse::parse_feed_with_dates(&b[..]) {
                                     collect_out_of_period_links(
                                         &feed,
                                         since,
@@ -91,7 +93,9 @@ pub async fn fetch_agencies_with_progress(
                                         })
                                         .count();
                                     candidate_count += feed_candidates;
-                                    if agency.short_name.starts_with("court-") {
+                                    if agency.short_name.starts_with("court-")
+                                        || crate::catalog::is_catalog_feed(&agency.short_name)
+                                    {
                                         let oldest = feed
                                             .entries
                                             .iter()
@@ -139,8 +143,45 @@ pub async fn fetch_agencies_with_progress(
                             Ok(b) => {
                                 successes += 1;
                                 let html = String::from_utf8_lossy(&b);
-                                let mut parsed =
-                                    parse_official_html(&html, &agency, source, since, until);
+                                let catalog_html =
+                                    crate::catalog::is_catalog_html(&agency.short_name);
+                                let mut parsed = if catalog_html {
+                                    crate::parse_catalog_news_index(
+                                        &html, &agency, source, since, until,
+                                    )
+                                } else {
+                                    parse_official_html(&html, &agency, source, since, until)
+                                };
+                                if catalog_html {
+                                    let all_dated = crate::parse_catalog_news_index(
+                                        &html,
+                                        &agency,
+                                        source,
+                                        NaiveDate::from_ymd_opt(1990, 1, 1)
+                                            .unwrap()
+                                            .and_hms_opt(0, 0, 0)
+                                            .unwrap()
+                                            .and_utc(),
+                                        DateTime::<Utc>::MAX_UTC,
+                                    );
+                                    if all_dated
+                                        .iter()
+                                        .map(|item| item.published_at)
+                                        .min()
+                                        .is_some_and(|date| date > since)
+                                    {
+                                        warnings.push(format!(
+                                            "{} 官方列表最舊資料晚於查詢起日，期間可能不完整",
+                                            agency.short_name
+                                        ));
+                                    }
+                                    if all_dated.is_empty() {
+                                        warnings.push(format!(
+                                            "{} 官方列表未解析到有日期的資料，請確認頁面格式",
+                                            agency.short_name
+                                        ));
+                                    }
+                                }
                                 exclude_precise_out_of_period_links(
                                     &mut parsed,
                                     &precise_out_of_period_links,
@@ -355,10 +396,10 @@ async fn fetch_govuk_search(
                 agency: agency.display_name(),
                 agency_en: agency.name_en.clone(),
                 unit_category: Some(agency.short_name.clone()),
-                title: title.into(),
+                title: crate::parse::clean_text(title),
                 link: link.clone(),
                 published_at,
-                summary: summary.into(),
+                summary: crate::parse::clean_text(summary),
                 source_feed: source_url.clone(),
                 matched_topics: vec![],
                 matched_keywords: vec![],

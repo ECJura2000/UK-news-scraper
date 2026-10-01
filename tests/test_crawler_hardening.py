@@ -2,7 +2,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
 from time import monotonic, sleep
 
 import feedparser
@@ -119,3 +119,71 @@ def test_requests_to_same_host_never_exceed_two_in_flight(monkeypatch):
     with ThreadPoolExecutor(max_workers=6) as pool:
         assert list(pool.map(async_client.get_text, ["https://official.example/feed"] * 6)) == ["ok"] * 6
     assert peak == 2
+
+
+def test_scottish_publisher_identity_is_limited_to_verified_hosts(monkeypatch):
+    calls = []
+
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs["headers"]["User-Agent"]))
+            return _response(200)
+
+    monkeypatch.setattr(async_client, "get_session", lambda: Session())
+    for host in ("scrp.scot", "povertyinequality.scot", "other.example"):
+        assert async_client.get_text(f"https://{host}/feed/") == "ok"
+    assert calls[0][1] == calls[1][1] == "UK-news-observation-scraper/2.0"
+    assert calls[2][1] == async_client.USER_AGENT
+
+
+def test_host_waiters_keep_fifo_order_and_expired_ticket_does_not_block():
+    slots = async_client._HostSlots(1)
+    assert slots.acquire(timeout=1)
+    entered = Event()
+
+    def waiting_request():
+        entered.set()
+        if slots.acquire(timeout=1):
+            slots.release()
+            return True
+        return False
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(waiting_request)
+        assert entered.wait(1)
+        # Wait until the first request has actually joined the queue.
+        expires = monotonic() + 1
+        while monotonic() < expires:
+            with slots._condition:
+                if slots._waiting:
+                    break
+            sleep(0.001)
+        with slots._condition:
+            assert len(slots._waiting) == 1
+        assert not slots.acquire(timeout=0.01)
+        slots.release()
+        assert future.result(timeout=1)
+    assert slots.acquire(timeout=0.01)
+    slots.release()
+
+
+def test_host_queue_budget_is_separate_from_network_timeout(monkeypatch):
+    calls = []
+
+    class Slot:
+        def acquire(self, *, timeout):
+            calls.append(("queue", timeout))
+            return True
+
+        def release(self):
+            pass
+
+    class Session:
+        def get(self, _url, **kwargs):
+            calls.append(("network", kwargs["timeout"]))
+            return _response(200)
+
+    monkeypatch.setattr(async_client, "_host_slot", lambda _: Slot())
+    monkeypatch.setattr(async_client, "get_session", lambda: Session())
+    assert async_client.get_text("https://official.example/feed", timeout=8) == "ok"
+    assert calls == [("queue", 50), ("network", 8)]

@@ -7,6 +7,7 @@ diff before committing because government organisations change over time.
 from __future__ import annotations
 
 import json
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
@@ -14,6 +15,14 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from UK_news_scraper.source_review import (  # noqa: E402
+    apply_review_state,
+    load_assessments,
+    load_exclusions,
+    load_overrides,
+)
 
 API = "https://www.gov.uk/api/organisations"
 OUTPUT = Path(__file__).resolve().parent.parent / "UK_news_scraper" / "data" / "source_catalog.json"
@@ -409,7 +418,13 @@ def main() -> None:
         ),
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    reviews = load_overrides(OUTPUT.with_name("source_catalog_overrides.json"))
+    assessments = load_assessments(OUTPUT.with_name("source_catalog_overrides.json"))
+    exclusions = load_exclusions(OUTPUT.with_name("source_catalog_overrides.json"))
+    payload["sources"] = apply_review_state(payload["sources"], reviews, assessments, exclusions)
+    temporary = OUTPUT.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(OUTPUT)
     print(f"catalog: {len(payload['sources'])} sources; review {OUTPUT}")
 
 

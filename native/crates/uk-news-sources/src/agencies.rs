@@ -80,7 +80,8 @@ mod tests {
     fn catalog_sources_are_selectable_only_with_verified_adapters() {
         let entries = crate::catalog::catalog_entries();
         let runnable = agencies();
-        assert!(entries.len() > 1100);
+        assert_eq!(entries.len(), 920 + legacy_agencies().len());
+        assert!(entries.iter().all(|entry| entry.status == "searchable"));
         assert!(runnable
             .iter()
             .any(|agency| agency.short_name == "court-scotland:judgments"));

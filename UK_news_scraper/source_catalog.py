@@ -35,9 +35,17 @@ def searchable_agencies() -> tuple[Agency, ...]:
             name_en=entry["name_en"],
             short_name=entry["id"],
             homepage=entry["homepage"],
-            feeds=(entry["feed"],) if entry.get("adapter") == "feed" else (f"{entry['homepage']}.atom",),
+            feeds=(entry["feed"],) if entry.get("adapter") == "feed" else (
+                (f"{entry['homepage']}.atom",) if entry["adapter"] == "govuk_search" else ()
+            ),
+            news_pages=(entry["news_page"],) if entry["adapter"] == "html_news" else (),
             link_include_patterns=GOVUK_LINKS if entry.get("adapter") == "govuk_search" else (),
         )
         for entry in catalog_entries()
-        if entry["status"] == "searchable" and entry["adapter"] in {"govuk_search", "feed"}
+        if entry["status"] == "searchable" and entry["adapter"] in {"govuk_search", "feed", "html_news"}
     )
+
+
+def catalog_adapter(identifier: str) -> str:
+    """Reviewed GOV.UK bodies may publish on their own advertised feed."""
+    return next((entry["adapter"] for entry in catalog_entries() if entry["id"] == identifier), "")

@@ -18,6 +18,11 @@ The desktop release implements the pipeline as a Rust workspace. Python remains 
 production fallback. Both implementations preserve the same Excel,
 fingerprint v3, run-summary, profile, and delivery-registry contracts.
 
+Agency requests share a two-request limit per host. Each source attempt starts
+its 50-second network budget when a worker begins executing it; waiting sources
+do not inherit an expired batch budget. An explicit caller deadline remains a
+hard upper bound. Parliament collection retains its separate 50-second budget.
+
 ## Module Responsibilities
 
 - `uk-news-core`: domain models, profile schema, relevance and fingerprint v3.

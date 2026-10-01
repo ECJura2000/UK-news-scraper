@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.4 - 2026-10-01
+
+- Verify and integrate official GOV.UK Search, RSS/Atom and dated agency news pages with matching Python/Rust parsers, explicit source scope, endpoint evidence and isolated source health.
+- Remove 60 duplicate, shared or excluded publication routes and all 203 remaining disabled sources at the user's request. Keep 920 selectable sources and reversible review records; directory refreshes cannot restore removed entries automatically.
+- Start agency fetch budgets when each source attempt begins, use a fair Python host queue and bounded Rust connection retries, while retaining explicit caller deadlines and two requests per host.
+- Preserve Excel relevance colors, keyword shading, bilingual fonts, worksheet layout and existing weekly profile defaults.
+
 ## 2.3.3 - 2026-09-30
 
 - Shade Rust Excel relevance levels and matched keyword strengths to match the Python report, including matched English titles and summaries.

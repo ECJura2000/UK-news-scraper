@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import re
 from datetime import datetime
@@ -9,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
 
+from ...catalog_html import content_type_for_link as _content_type_for_link
+from ...catalog_html import parse_news_index
 from ...config import (
     AGENCIES,
     DEFAULT_MAX_WORKERS,
@@ -20,6 +23,7 @@ from ...models import Agency, NewsItem, ParliamentBriefing
 from ...profiles import FilterProfile
 from ...relevance import apply_profile_filter
 from ...rss import discover_feed_urls, parse_feed
+from ...source_catalog import catalog_adapter
 from ..base import Scraper
 from .source_adapters import SourceHtmlAdapter, _attr_text
 from .status import AgencyFetchStatus, FetchAllResult
@@ -73,7 +77,35 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
     def fetch(self, since: datetime) -> list[NewsItem]:
         self.source_warnings = []
         self.candidate_count = 0
-        if self.agency.short_name.startswith("govuk:"):
+        adapter = catalog_adapter(self.agency.short_name)
+        if adapter == "html_news":
+            html_items: list[NewsItem] = []
+            successes = 0
+            for page in self.agency.news_pages:
+                try:
+                    html = get_text(page)
+                except Exception as exc:
+                    self.source_warnings.append(f"{self.agency.short_name} 官方發布頁讀取失敗：{exc}")
+                    continue
+                successes += 1
+                found = parse_news_index(html, self.agency, page, since, self.until)
+                all_dated = parse_news_index(
+                    html, self.agency, page, datetime(1990, 1, 1, tzinfo=since.tzinfo), None
+                )
+                self.candidate_count += len(found)
+                if all_dated and min(x.published_at for x in all_dated) > since:
+                    self.source_warnings.append(
+                        f"{self.agency.short_name} 官方列表最舊資料晚於查詢起日，期間可能不完整"
+                    )
+                if not all_dated:
+                    self.source_warnings.append(
+                        f"{self.agency.short_name} 官方列表未解析到有日期的資料，請確認頁面格式"
+                    )
+                html_items.extend(found)
+            if not successes:
+                raise DownloadError("所有官方發布頁讀取失敗")
+            return dedupe_items(html_items)
+        if self.agency.short_name.startswith("govuk:") and adapter != "feed":
             return self._fetch_govuk_search(since)
         if self.agency.short_name == "NPSA":
             official_items, _, _ = self._fetch_official_pages(since)
@@ -106,7 +138,7 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
             successful_sources += 1
             feed_candidates = 0
             feed_parsed = 0
-            if self.agency.short_name.startswith("court-"):
+            if self.agency.short_name.startswith("court-") or catalog_adapter(self.agency.short_name) == "feed":
                 dates = [value for entry in feed.entries if (value := parse_feed_datetime(entry))]
                 if dates and min(dates) > since:
                     self.source_warnings.append(
@@ -191,7 +223,7 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                 if items:
                     self.source_warnings.append(f"{self.agency.short_name} 搜尋分頁中斷，已保留取得的資料")
                     return dedupe_items(items)
-                raise DownloadError(f"GOV.UK 搜尋失敗：{slug}") from exc
+                raise DownloadError(f"GOV.UK 搜尋失敗：{slug}（{type(exc).__name__}：{exc}）") from exc
             results = payload.get("results", [])
             if not isinstance(results, list):
                 if items:
@@ -250,14 +282,34 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
         published_at = parse_feed_datetime(entry)
         if not published_at or published_at < since:
             return None
+        if self.until is not None and published_at >= self.until:
+            return None
 
-        title = clean_text(getattr(entry, "title", ""))
+        raw_title = getattr(entry, "title", "")
+        if getattr(entry, "title_detail", {}).get("type") == "text/plain":
+            raw_title = html.escape(raw_title)
+        title = clean_text(raw_title)
         link = getattr(entry, "link", "")
         summary = _entry_summary(entry)
         if not title or not link:
             return None
         if not self._is_allowed_link(link):
             return None
+        if catalog_adapter(self.agency.short_name) == "feed":
+            link_host = (urlparse(link).hostname or "").casefold().removeprefix("www.")
+            official_hosts = [
+                (urlparse(url).hostname or "").casefold().removeprefix("www.")
+                for url in (self.agency.homepage, *self.agency.news_pages, *self.agency.official_pages)
+            ]
+            if not link_host or not any(
+                official and (
+                    link_host == official
+                    or link_host.endswith(f".{official}")
+                    or official.endswith(f".{link_host}")
+                )
+                for official in official_hosts
+            ):
+                return None
 
         return NewsItem(
             agency=self.agency.display_name,
@@ -570,20 +622,6 @@ def _summary_from_html(node: Any) -> str:
             if text:
                 return text
     return ""
-
-
-def _content_type_for_link(link: str, title: str = "", context: str = "") -> str:
-    value = " ".join((link, title, context)).casefold()
-    path = urlparse(link).path.casefold()
-    if "/judgment" in path or "/judicial-decision" in path:
-        return "judgment"
-    if "/guidance/" in path or "/collection/" in path or "guidance" in value:
-        return "guidance"
-    if "/report" in path or "/research/" in path or "report" in value or "research" in value:
-        return "report"
-    if "/publication" in path or "/consultation" in path or "publication" in value or "consultation" in value:
-        return "publication"
-    return "news"
 
 
 def build_scrapers(agencies: tuple[Agency, ...] = AGENCIES, until: datetime | None = None) -> list[AgencyFeedScraper]:

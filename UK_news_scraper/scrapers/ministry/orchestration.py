@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from time import monotonic, sleep
 
-from ...config import AGENCIES, DEFAULT_MAX_WORKERS
+from ...config import AGENCIES, DEFAULT_FETCH_BUDGET_SECONDS, DEFAULT_MAX_WORKERS
 from ...errors import UKNewsError, is_retryable_error
 from ...http.async_client import request_deadline, trace_requests
 from ...models import Agency, EndpointObservation, NewsItem
@@ -95,7 +95,12 @@ def fetch_all(
 def _fetch_scraper(
     scraper: AgencyFeedScraper, since: datetime, deadline: float | None = None
 ) -> tuple[list[NewsItem], tuple[EndpointObservation, ...], Exception | None]:
-    with request_deadline(deadline), trace_requests() as observations:
+    # Start the budget when this worker actually begins the source, not when
+    # hundreds of sources are queued. An explicit caller deadline remains a cap.
+    source_deadline = monotonic() + DEFAULT_FETCH_BUDGET_SECONDS
+    if deadline is not None:
+        source_deadline = min(source_deadline, deadline)
+    with request_deadline(source_deadline), trace_requests() as observations:
         try:
             items = scraper.fetch(since)
         except (UKNewsError, OSError, ValueError, KeyError, TypeError) as error:

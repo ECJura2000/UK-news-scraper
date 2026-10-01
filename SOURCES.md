@@ -1,6 +1,15 @@
 # 資料來源
 
-本專案整理英國政府機關、監管機關與 UK Parliament 公開發布的新聞及研究資料。程式實際使用的最新來源仍以 [`UK_news_scraper/config.py`](UK_news_scraper/config.py) 與 Parliament scraper 為準。
+本專案整理英國政府機關、監管機關與 UK Parliament 公開發布的新聞及研究資料。
+
+## 完整可選取來源清單
+
+- [v2.3.4 完整 920 筆來源清單](docs/SOURCE_CATALOG_v2.3.4.md)：逐筆列出機構／發布管道名稱、地區、來源 ID 與官方網址。
+- [v2.3.4 原始名錄 JSON](https://github.com/ECJura2000/UK-news-scraper/blob/v2.3.4/UK_news_scraper/data/source_catalog.json)：該版本的程式來源設定。
+
+920 是可選取的來源項目數，同一機構可能有多個發布管道。這份清單是
+v2.3.4 的快照；使用者須在桌面介面選取來源並儲存主題設定，才會在該次抓取中使用。
+內建來源另見 [`UK_news_scraper/config.py`](UK_news_scraper/config.py)，國會來源由 Parliament scraper 管理。
 
 ## 機關新聞來源
 

@@ -18,6 +18,7 @@ from urllib3.util.retry import Retry
 from ..config import DEFAULT_RETRY_TOTAL, DEFAULT_TIMEOUT_SECONDS, USER_AGENT
 from ..errors import DownloadError, ParseError
 from ..models import EndpointObservation
+from ..performance import http_attempt, http_status, route_category
 
 _THREAD_LOCAL = local()
 _HOST_LOCK = Lock()
@@ -122,7 +123,10 @@ def _request(url: str, *, timeout: float, headers: dict[str, str]) -> requests.R
             _observe(url, None)
             raise DownloadError(f"同網域請求等待逾時：{url}")
         try:
-            response = get_session().get(url, timeout=_remaining(timeout), headers=headers)
+            request_timeout = _remaining(timeout)
+            http_attempt(route_category(url), retry=attempt > 0)
+            response = get_session().get(url, timeout=request_timeout, headers=headers)
+            http_status(route_category(url), response.status_code)
         except requests.RequestException as exc:
             _observe(url, exc.response)
             raise
@@ -242,9 +246,11 @@ def _get_text_with_browser_tls(url: str, timeout: int) -> str:
     if not slot.acquire(timeout=_remaining(HOST_QUEUE_TIMEOUT_SECONDS)):
         raise DownloadError(f"同網域請求等待逾時：{url}")
     try:
+        request_timeout = _remaining(timeout)
+        http_attempt("fallback")
         response = curl_requests.get(
             url,
-            timeout=_remaining(timeout),
+            timeout=request_timeout,
             impersonate="chrome120",
             headers={
                 "Accept": _headers()["Accept"],
@@ -253,6 +259,7 @@ def _get_text_with_browser_tls(url: str, timeout: int) -> str:
         )
     finally:
         slot.release()
+    http_status("fallback", response.status_code)
     _observe(url, cast(requests.Response, response))
     if response.status_code == 403 and _looks_like_cloudflare_challenge(response.text):
         raise requests.HTTPError(f"403 Forbidden Cloudflare challenge: {url}")

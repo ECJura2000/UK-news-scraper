@@ -26,7 +26,8 @@ impl Default for FreeGoogleProvider {
 #[async_trait]
 impl TranslationProvider for FreeGoogleProvider {
     async fn translate(&self, text: &str) -> Result<String> {
-        let value: Value = self
+        uk_news_sources::performance::http_attempt("translation", false);
+        let response = self
             .client
             .get("https://translate.googleapis.com/translate_a/single")
             .query(&[
@@ -37,10 +38,9 @@ impl TranslationProvider for FreeGoogleProvider {
                 ("q", text),
             ])
             .send()
-            .await?
-            .error_for_status()?
-            .json()
             .await?;
+        uk_news_sources::performance::http_status("translation", response.status().as_u16());
+        let value: Value = response.error_for_status()?.json().await?;
         let translated = value
             .get(0)
             .and_then(Value::as_array)
@@ -80,11 +80,16 @@ impl<P: TranslationProvider> TranslationService<P> {
             .into_iter()
             .filter(|x| !x.is_empty())
             .collect::<std::collections::BTreeSet<_>>();
+        let unique_count = unique.len();
         let mut warnings = vec![];
         let pending = unique
             .into_iter()
             .filter(|text| !cache.contains_key(text))
             .collect::<Vec<_>>();
+        uk_news_sources::performance::record(|data| {
+            data.translation_cache_hits += unique_count - pending.len();
+            data.translation_cache_misses += pending.len();
+        });
         let mut results = stream::iter(pending.iter().cloned())
             .map(|text| async move {
                 let result = timeout(Duration::from_secs(3), self.provider.translate(&text)).await;

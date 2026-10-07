@@ -2,6 +2,7 @@ mod agencies;
 mod catalog;
 mod fetch;
 mod parse;
+pub mod performance;
 mod transport;
 
 pub use agencies::agencies;

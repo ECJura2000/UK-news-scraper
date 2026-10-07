@@ -5,6 +5,7 @@ import os
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import Any, cast
 
 from openpyxl import Workbook, load_workbook
@@ -18,6 +19,7 @@ from .calendar_utils import CalendarMode, excel_number_format
 from .dedupe import dedupe_news_items, normalize_title
 from .font_policy import CHINESE_FONT, ENGLISH_FONT, language_runs
 from .models import NewsItem, ParliamentBriefing
+from .performance import current_recorder, timed
 from .profiles import (
     FilterProfile,
     KeywordStrength,
@@ -114,6 +116,7 @@ def export_news(
         content_label="國會標題或摘要",
     )
 
+    excel_started = monotonic()
     wb = Workbook()
     ws_all = wb.active
     assert isinstance(ws_all, Worksheet)
@@ -146,6 +149,14 @@ def export_news(
 
     ws_settings = wb.create_sheet("篩選設定")
     _write_settings_sheet(ws_settings, profile, options.calendar_mode)
+    if any("news.google.com/" in item.source_feed for item in all_items):
+        ws_settings.append(
+            [
+                "備援資料日期",
+                "Google News 備援日期取自 RSS，可能為索引或更新日期，未核對官方發布日期；"
+                "備援連結可能經 Google News 轉址。",
+            ]
+        )
 
     _style_sheet(ws_all)
     _style_filtered_sheet(ws_filtered)
@@ -166,6 +177,8 @@ def export_news(
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise
+    if recorder := current_recorder():
+        recorder.duration("excel_write_seconds", monotonic() - excel_started)
     return path
 
 
@@ -509,6 +522,7 @@ def _ensure_translations_present(translations: dict[str, str], items: list[NewsI
         print(f"[warn] 新聞標題翻譯失敗或未變更，將保留原文：{sample}")
 
 
+@timed("translation_seconds")
 def _translate_texts(texts: list[str], content_label: str) -> dict[str, str]:
     unique_titles = list(dict.fromkeys(text for text in texts if text))
     if not unique_titles:
@@ -522,6 +536,9 @@ def _translate_texts(texts: list[str], content_label: str) -> dict[str, str]:
         if resolved and _normalize_title(resolved) != _normalize_title(title):
             translations[title] = resolved
     missing = [title for title in unique_titles if title not in translations]
+    if recorder := current_recorder():
+        recorder.data.translation_cache_hits += len(unique_titles) - len(missing)
+        recorder.data.translation_cache_misses += len(missing)
     if not missing:
         return translations
 

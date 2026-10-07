@@ -184,9 +184,9 @@ def test_official_metadata_skips_invalid_json_and_uses_description():
 def test_google_news_fallback_filters_unrelated_election_titles(monkeypatch):
     scraper = registry.AgencyFeedScraper(_agency("Electoral Commission"))
     entries = [
-        _entry("Search criteria - Electoral Commission"),
-        _entry("Election digital services update - Electoral Commission"),
-        _entry("Election digital services update - Electoral Commission"),
+        _entry("Search criteria - Electoral Commission", "https://news.google.com/rss/articles/criteria"),
+        _entry("Election digital services update - Electoral Commission", "https://news.google.com/rss/articles/news"),
+        _entry("Election digital services update - Electoral Commission", "https://news.google.com/rss/articles/news"),
     ]
     monkeypatch.setattr(registry, "parse_feed", lambda _url: SimpleNamespace(entries=entries))
     items = scraper._fetch_google_news_fallback(SINCE)

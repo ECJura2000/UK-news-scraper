@@ -10,12 +10,14 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    time::Instant,
 };
 use uk_news_core::{
     assess_news, assess_parliament, make_data_fingerprint, make_delivery_id, record_provenance,
     summarize_source_health, FilterProfile, NewsItem, ParliamentBriefing, RunStatus, RunSummary,
 };
 use uk_news_export::{export_news, CalendarMode, ExportOptions};
+use uk_news_sources::performance::{self, Timer};
 use uk_news_sources::{
     fetch_agencies_with_progress, fetch_parliament, FetchResult, SourceProgress,
 };
@@ -71,9 +73,25 @@ pub async fn execute(options: RunOptions) -> Result<(PathBuf, PathBuf, RunSummar
 }
 
 pub async fn execute_with_progress(
+    options: RunOptions,
+    progress: Option<ProgressCallback>,
+) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    let recorder = Arc::new(std::sync::Mutex::new(uk_news_core::RunPerformance {
+        runtime_version: env!("CARGO_PKG_VERSION").into(),
+        workers: options.workers,
+        run_kind: "full".into(),
+        ..Default::default()
+    }));
+    performance::CURRENT
+        .scope(recorder, execute_with_progress_measured(options, progress))
+        .await
+}
+
+async fn execute_with_progress_measured(
     mut options: RunOptions,
     progress: Option<ProgressCallback>,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    let run_started = Instant::now();
     options.output = absolute_output(&options.output)?;
     let (since, until) = utc_range(options.since, options.until);
     let selected = options.profile.selected_sources.clone();
@@ -103,6 +121,7 @@ pub async fn execute_with_progress(
             });
         }) as SourceProgress
     });
+    let collection_timer = Timer::new("collection_wall_seconds");
     let agency_future =
         fetch_agencies_with_progress(since, until, options.workers, &selected, source_progress);
     let parliament_future = async {
@@ -129,7 +148,10 @@ pub async fn execute_with_progress(
         result
     };
     let (agencies, parliament) = tokio::join!(agency_future, parliament_future);
-    finalize(options, agencies, parliament, progress, total).await
+    drop(collection_timer);
+    record_collection_counts("agency", &agencies);
+    record_collection_counts("parliament", &parliament);
+    finalize(options, agencies, parliament, progress, total, run_started).await
 }
 
 pub async fn retry_failed_sources(
@@ -140,10 +162,30 @@ pub async fn retry_failed_sources(
 }
 
 pub async fn retry_failed_sources_with_progress(
+    options: RunOptions,
+    previous_summary_path: &Path,
+    progress: Option<ProgressCallback>,
+) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    let recorder = Arc::new(std::sync::Mutex::new(uk_news_core::RunPerformance {
+        runtime_version: env!("CARGO_PKG_VERSION").into(),
+        workers: options.workers,
+        run_kind: "retry".into(),
+        ..Default::default()
+    }));
+    performance::CURRENT
+        .scope(
+            recorder,
+            retry_failed_sources_with_progress_measured(options, previous_summary_path, progress),
+        )
+        .await
+}
+
+async fn retry_failed_sources_with_progress_measured(
     mut options: RunOptions,
     previous_summary_path: &Path,
     progress: Option<ProgressCallback>,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    let run_started = Instant::now();
     options.output = absolute_output(&options.output)?;
     let previous: RunSummary = serde_json::from_str(
         &fs::read_to_string(previous_summary_path)
@@ -206,6 +248,7 @@ pub async fn retry_failed_sources_with_progress(
     });
 
     let (since, until) = utc_range(options.since, options.until);
+    let collection_timer = Timer::new("collection_wall_seconds");
     let retried_agencies = if failed_agencies.is_empty() {
         FetchResult {
             items: vec![],
@@ -247,6 +290,11 @@ pub async fn retry_failed_sources_with_progress(
         }
     };
 
+    drop(collection_timer);
+    record_collection_counts("agency", &retried_agencies);
+    if retry_parliament {
+        record_collection_counts("parliament", &retried_parliament);
+    }
     let failed_set = failed_agencies.iter().collect::<HashSet<_>>();
     let mut news = previous_data
         .news
@@ -272,7 +320,25 @@ pub async fn retry_failed_sources_with_progress(
         health,
         warnings: retried_agencies.warnings,
     };
-    finalize(options, agencies, retried_parliament, progress, total).await
+    finalize(
+        options,
+        agencies,
+        retried_parliament,
+        progress,
+        total,
+        run_started,
+    )
+    .await
+}
+
+fn record_collection_counts<T>(name: &str, result: &FetchResult<T>) {
+    performance::record(|data| {
+        let counts = data.counts.entry(name.into()).or_default();
+        counts.candidate_count = result.health.iter().map(|h| h.candidate_count).sum();
+        counts.source_output_count = result.health.iter().map(|h| h.item_count).sum();
+        counts.date_filtered_count = result.items.len();
+        counts.deduped_count = result.items.len();
+    });
 }
 
 async fn finalize(
@@ -281,8 +347,31 @@ async fn finalize(
     mut parliament: FetchResult<ParliamentBriefing>,
     progress: Option<ProgressCallback>,
     total: usize,
+    run_started: Instant,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
+    let homepages = uk_news_sources::agencies()
+        .into_iter()
+        .map(|agency| (agency.short_name, agency.homepage))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut removed = std::collections::HashMap::<String, usize>::new();
+    agencies.items.retain(|item| {
+        let source = item.unit_category.as_deref().unwrap_or(&item.agency);
+        let exclude = uk_news_core::is_agency_homepage(
+            &item.link,
+            homepages.get(source).map(String::as_str).unwrap_or(""),
+        );
+        if exclude {
+            *removed.entry(source.to_string()).or_default() += 1;
+        }
+        !exclude
+    });
+    for health in &mut agencies.health {
+        health.item_count = health
+            .item_count
+            .saturating_sub(*removed.get(&health.source).unwrap_or(&0));
+    }
     emit(&progress, "filtering", total, total, "", "正在篩選相關新聞");
+    let relevance_timer = Timer::new("relevance_seconds");
     let mut filtered = vec![];
     for item in &mut agencies.items {
         if is_organisation_homepage(&item.link) {
@@ -302,6 +391,8 @@ async fn finalize(
             filtered_p.push(candidate)
         }
     }
+    drop(relevance_timer);
+    let translation_timer = Timer::new("translation_seconds");
     let texts = agencies.items.iter().map(|x| x.title.clone()).chain(
         parliament
             .items
@@ -320,6 +411,7 @@ async fn finalize(
     )
     .translate_all(texts)
     .await;
+    drop(translation_timer);
     emit(
         &progress,
         "exporting",
@@ -328,6 +420,7 @@ async fn finalize(
         "",
         "正在產生 Excel 與執行摘要",
     );
+    let excel_timer = Timer::new("excel_write_seconds");
     export_news(
         &agencies.items,
         &filtered,
@@ -340,6 +433,7 @@ async fn finalize(
             profile: &options.profile,
         },
     )?;
+    drop(excel_timer);
     let data = RunData {
         news: agencies.items.clone(),
         parliament: parliament.items.clone(),
@@ -369,7 +463,7 @@ async fn finalize(
     let observability = summarize_source_health(&health);
     let record_provenance =
         record_provenance(&agencies.items, &parliament.items, &generated_at, &health);
-    let summary = RunSummary {
+    let mut summary = RunSummary {
         run_id: run_id.clone(),
         generated_at: generated_at.clone(),
         period_start: options.since.to_string(),
@@ -397,20 +491,48 @@ async fn finalize(
         .into(),
         observability,
         record_provenance,
+        performance: Default::default(),
     };
     let summary_path = options.output.with_extension("run.json");
-    atomic_json(&summary_path, &summary)?;
+    let json_timer = Timer::new("json_write_seconds");
     atomic_json(&data_path_for_summary(&summary_path), &data)?;
+    drop(json_timer);
+    performance::record(|metrics| {
+        for (name, output, relevant) in [
+            (
+                "agency",
+                summary.all_news_count,
+                summary.filtered_news_count,
+            ),
+            (
+                "parliament",
+                summary.parliament_count,
+                summary.filtered_parliament_count,
+            ),
+        ] {
+            let counts = metrics.counts.entry(name.into()).or_default();
+            counts.final_output_count = output;
+            counts.relevant_output_count = relevant;
+        }
+        metrics.total_wall_seconds = run_started.elapsed().as_secs_f64();
+        summary.performance = metrics.clone();
+    });
+    let summary_started = Instant::now();
+    atomic_json(&summary_path, &summary)?;
+    println!(
+        "[performance] summary_write_seconds={:.6}",
+        summary_started.elapsed().as_secs_f64()
+    );
+    println!(
+        "[performance] artifacts_complete_seconds={:.6}",
+        run_started.elapsed().as_secs_f64()
+    );
     emit(&progress, "completed", total, total, "", "報表已完成");
     Ok((options.output, summary_path, summary))
 }
 
 fn is_organisation_homepage(link: &str) -> bool {
-    let Some(url) = url::Url::parse(link).ok() else {
-        return false;
-    };
-    let parts = url.path().trim_matches('/').split('/').collect::<Vec<_>>();
-    parts.len() == 3 && parts[0] == "government" && parts[1] == "organisations"
+    uk_news_core::is_agency_homepage(link, "")
 }
 
 fn run_id_for(since: NaiveDate, until: NaiveDate, profile_id: &str) -> String {
@@ -472,6 +594,7 @@ fn is_parliament_health(source: &str) -> bool {
 }
 
 fn dedupe_news(mut items: Vec<NewsItem>) -> Vec<NewsItem> {
+    let _timer = Timer::new("dedupe_work_seconds");
     items.sort_by_key(|item| std::cmp::Reverse(item.published_at));
     let mut seen = HashSet::new();
     items
@@ -566,6 +689,56 @@ mod tests {
         assert_eq!(
             data_path_for_summary(Path::new("/tmp/report.run.json")),
             PathBuf::from("/tmp/report.run.data.json")
+        );
+    }
+    #[tokio::test]
+    async fn instrumentation_preserves_identity_and_reads_legacy_summaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let date = NaiveDate::from_ymd_opt(2026, 10, 7).unwrap();
+        let mut options = default_run_options(date, date, dir.path().join("report.xlsx"));
+        options.profile.selected_sources.clear();
+        options.translation_cache = dir.path().join("cache.json");
+        let (workbook, path, summary) = execute(options).await.unwrap();
+        assert!(workbook.exists());
+        assert!(data_path_for_summary(&path).exists());
+        assert_eq!(summary.performance.run_kind, "full");
+        assert!(!summary.performance.detail_fetch_enabled);
+        assert!(summary
+            .performance
+            .stages
+            .values()
+            .all(|seconds| seconds.is_some_and(|seconds| seconds.is_finite() && seconds >= 0.0)));
+        assert!(
+            summary.performance.total_wall_seconds
+                >= summary.performance.stages["collection_wall_seconds"].unwrap()
+        );
+        assert!(summary.performance.stages["excel_write_seconds"].unwrap() > 0.0);
+        assert_eq!(
+            summary.performance.counts["agency"].final_output_count,
+            summary.all_news_count
+        );
+        let mut payload: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        // Python has no separate run-data output; null stage timings must be readable.
+        payload["performance"]["runtime"] = "python".into();
+        payload["performance"]["stages"]["json_write_seconds"] = serde_json::Value::Null;
+        let python_summary: RunSummary = serde_json::from_value(payload.clone()).unwrap();
+        assert_eq!(
+            python_summary.performance.stages["json_write_seconds"],
+            None
+        );
+        payload.as_object_mut().unwrap().remove("performance");
+        let legacy: RunSummary = serde_json::from_value(payload).unwrap();
+        assert_eq!(legacy.performance.total_wall_seconds, 0.0);
+        assert_eq!(legacy.data_fingerprint, summary.data_fingerprint);
+        assert_eq!(legacy.delivery_id, summary.delivery_id);
+        let data = RunData {
+            news: vec![],
+            parliament: vec![],
+        };
+        assert_eq!(
+            make_data_fingerprint(&data.news, &data.parliament),
+            summary.data_fingerprint
         );
     }
 }

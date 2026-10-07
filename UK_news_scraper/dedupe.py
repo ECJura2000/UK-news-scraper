@@ -4,8 +4,10 @@ import re
 from collections.abc import Iterable
 
 from .models import NewsItem
+from .performance import timed
 
 
+@timed("dedupe_work_seconds")
 def dedupe_news_items(items: Iterable[NewsItem]) -> list[NewsItem]:
     seen: set[tuple[str, ...]] = set()
     output: list[NewsItem] = []

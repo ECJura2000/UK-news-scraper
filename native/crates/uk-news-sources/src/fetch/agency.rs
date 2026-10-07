@@ -84,10 +84,11 @@ pub async fn fetch_agencies_with_progress(
                                                 .is_none_or(|date| date >= since && date < until);
                                             let allowed_link =
                                                 entry.links.first().is_none_or(|link| {
-                                                    agency.link_include_patterns.is_empty()
+                                                    !uk_news_core::is_agency_homepage(&link.href, &agency.homepage)
+                                                        && (agency.link_include_patterns.is_empty()
                                                         || agency.link_include_patterns.iter().any(
                                                             |pattern| link.href.contains(pattern),
-                                                        )
+                                                        ))
                                                 });
                                             in_period && allowed_link
                                         })
@@ -186,7 +187,10 @@ pub async fn fetch_agencies_with_progress(
                                     &mut parsed,
                                     &precise_out_of_period_links,
                                 );
-                                if parsed.is_empty() && page_has_in_range_date(&html, since, until)
+                                let candidate_date = if uk_news_core::is_agency_homepage(source, &agency.homepage) {
+                                    Html::parse_document(&html).select(&Selector::parse("article, li, .search-result, .card").unwrap()).any(|node| page_has_in_range_date(&node.html(), since, until))
+                                } else { page_has_in_range_date(&html, since, until) };
+                                if parsed.is_empty() && candidate_date
                                 {
                                     candidate_count += 1;
                                     warnings.push(format!(
@@ -213,6 +217,7 @@ pub async fn fetch_agencies_with_progress(
                     {
                         Ok(mut fallback) => {
                             successes += 1;
+                            if !fallback.is_empty() { warnings.push(format!("{} 使用 Google News 備援；日期取自備援 RSS，未核對官方發布日期", agency.short_name)); }
                             items.append(&mut fallback);
                         }
                         Err(error) => warnings.push(format!(
@@ -221,6 +226,7 @@ pub async fn fetch_agencies_with_progress(
                         )),
                     }
                 }
+                items.retain(|item| !uk_news_core::is_agency_homepage(&item.link, &agency.homepage));
                 items = crate::parse::dedupe(items);
                 let success = successes > 0;
                 let mut warning = warnings.join("；");
@@ -352,6 +358,9 @@ async fn fetch_govuk_search(
             } else {
                 format!("https://www.gov.uk{path}")
             };
+            if uk_news_core::is_agency_homepage(&link, &agency.homepage) {
+                continue;
+            }
             let document_format = value
                 .get("format")
                 .and_then(Value::as_str)

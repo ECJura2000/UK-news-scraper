@@ -50,6 +50,7 @@ impl Transport {
         let mut endpoint_url = request.url().clone();
         endpoint_url.set_query(None);
         endpoint_url.set_fragment(None);
+        let category = crate::performance::route_category(endpoint_url.as_str());
         let host = endpoint_url.host_str().unwrap_or("").to_lowercase();
         let slot = {
             let mut slots = self.slots.lock().await;
@@ -64,6 +65,7 @@ impl Transport {
                 .map_err(|_| "本次抓取已達整體等待上限".to_string())?
                 .map_err(|error| error.to_string())?;
             let repeat = request.try_clone().ok_or("GET request cannot be retried")?;
+            crate::performance::http_attempt(category, attempt > 0);
             let response = match timeout_at(self.deadline, self.client.execute(repeat)).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(error)) => {
@@ -84,6 +86,7 @@ impl Transport {
                 }
             };
             let status = response.status();
+            crate::performance::http_status(category, status.as_u16());
             let delay = retry_after(
                 response
                     .headers()
@@ -236,13 +239,19 @@ mod tests {
             .build()
             .unwrap();
         let mut observations = Vec::new();
+        let recorder = crate::performance::Recorder::default();
         assert_eq!(
-            transport
-                .bytes(transport.get(&url), &mut observations)
+            crate::performance::CURRENT
+                .scope(
+                    recorder.clone(),
+                    transport.bytes(transport.get(&url), &mut observations)
+                )
                 .await
                 .unwrap(),
             b"ok"
         );
+        assert_eq!(recorder.lock().unwrap().http["list"].attempted_count, 2);
+        assert_eq!(recorder.lock().unwrap().http["list"].retry_count, 1);
         server.join().unwrap();
         assert_eq!(observations.len(), 2);
         assert_eq!(observations[0].status_code, 0);

@@ -503,6 +503,7 @@ fn parse_topic_archive(
     dedupe_parliament(out)
 }
 fn dedupe_parliament(mut items: Vec<ParliamentBriefing>) -> Vec<ParliamentBriefing> {
+    let _timer = crate::performance::Timer::new("dedupe_work_seconds");
     items.sort_by_key(|x| std::cmp::Reverse(x.published_at));
     let mut seen = HashSet::new();
     items

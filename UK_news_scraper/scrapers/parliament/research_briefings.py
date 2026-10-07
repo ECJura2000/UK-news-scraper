@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup, Tag
 from ...external_schemas import validate_parliament_api_payload
 from ...http.async_client import current_request_deadline, get_json, get_text, request_deadline, trace_requests
 from ...models import EndpointObservation, ParliamentBriefing, SourceHealth
+from ...performance import submit, timed
 from ...rss import parse_feed
 from ..ministry.utils.date import parse_datetime_text, parse_feed_datetime
 from ..ministry.utils.text import clean_text
@@ -160,7 +161,7 @@ def fetch_parliament_briefings(
     with ThreadPoolExecutor(max_workers=len(RSS_SOURCES)) as executor:
         futures = {
             publisher: (
-                executor.submit(_traced_fetch, _fetch_rss, publisher, feed_url, since, _request_deadline=deadline),
+                submit(executor, _traced_fetch, _fetch_rss, publisher, feed_url, since, _request_deadline=deadline),
                 monotonic(),
             )
             for publisher, feed_url in RSS_SOURCES.items()
@@ -228,7 +229,7 @@ def _extend_with_topic_archives(
     with ThreadPoolExecutor(max_workers=len(TOPIC_ARCHIVE_SOURCES)) as executor:
         futures = {
             label: (
-                executor.submit(
+                submit(executor,
                     _traced_fetch,
                     _fetch_topic_archive,
                     since,
@@ -512,6 +513,7 @@ def _pdf_url(content: str, identifier: str) -> str:
     return ""
 
 
+@timed("dedupe_work_seconds")
 def _dedupe(items: list[ParliamentBriefing]) -> list[ParliamentBriefing]:
     seen: set[str] = set()
     output: list[ParliamentBriefing] = []

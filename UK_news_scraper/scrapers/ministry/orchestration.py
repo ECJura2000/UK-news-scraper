@@ -2,10 +2,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from time import monotonic, sleep
 
+from ...article_links import is_agency_homepage
 from ...config import AGENCIES, DEFAULT_FETCH_BUDGET_SECONDS, DEFAULT_MAX_WORKERS
 from ...errors import UKNewsError, is_retryable_error
 from ...http.async_client import request_deadline, trace_requests
 from ...models import Agency, EndpointObservation, NewsItem
+from ...performance import submit
 from .registry import AgencyFeedScraper, build_scrapers
 from .status import AgencyFetchStatus, FetchAllResult, health_warning, newest_published_at
 from .utils.dedupe import dedupe_items
@@ -33,7 +35,7 @@ def fetch_all_with_status(
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_map = {
-            executor.submit(_fetch_scraper, scraper, since, deadline): (scraper, monotonic()) for scraper in scrapers
+            submit(executor, _fetch_scraper, scraper, since, deadline): (scraper, monotonic()) for scraper in scrapers
         }
         for future in as_completed(future_map):
             scraper, started_at = future_map[future]
@@ -55,7 +57,7 @@ def fetch_all_with_status(
             sleep(RETRY_DELAY_SECONDS)
         with ThreadPoolExecutor(max_workers=max(1, min(workers, len(failed_scrapers)))) as executor:
             retry_future_map = {
-                executor.submit(_fetch_scraper, scraper, since, deadline): (
+                submit(executor, _fetch_scraper, scraper, since, deadline): (
                     scraper,
                     first_error,
                     first_duration,
@@ -105,6 +107,7 @@ def _fetch_scraper(
             items = scraper.fetch(since)
         except (UKNewsError, OSError, ValueError, KeyError, TypeError) as error:
             return [], tuple(observations), error
+        items = [item for item in items if not is_agency_homepage(item.link, scraper.agency.homepage)]
         return items, tuple(observations), None
 
 

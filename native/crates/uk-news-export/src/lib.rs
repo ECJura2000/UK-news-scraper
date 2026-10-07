@@ -311,6 +311,13 @@ pub fn export_news(
         let ws = workbook.add_worksheet();
         ws.set_name(REQUIRED_SHEETS[3])?;
         write_settings(ws, options.profile, options.calendar_mode)?;
+        if all
+            .iter()
+            .any(|item| item.source_feed.contains("news.google.com/"))
+        {
+            write_text(ws, 8, 0, "備援資料日期", &Format::new(), false)?;
+            write_text(ws, 8, 1, "Google News 備援日期取自 RSS，可能為索引或更新日期，未核對官方發布日期；備援連結可能經 Google News 轉址。", &Format::new(), false)?;
+        }
     }
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?

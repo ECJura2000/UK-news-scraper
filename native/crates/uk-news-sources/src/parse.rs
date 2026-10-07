@@ -3,7 +3,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use feed_rs::parser;
 use scraper::{Html, Selector};
 use serde_json::Value;
-use uk_news_core::{Agency, ContentType, NewsItem};
+use uk_news_core::{is_agency_homepage, Agency, ContentType, NewsItem};
 use url::Url;
 
 pub(crate) fn clean_text(value: &str) -> String {
@@ -45,6 +45,9 @@ pub fn content_type_for_link(link: &str, title: &str, context: &str) -> ContentT
 }
 
 fn allowed(agency: &Agency, link: &str) -> bool {
+    if is_agency_homepage(link, &agency.homepage) {
+        return false;
+    }
     let Some(link_host) = Url::parse(link)
         .ok()
         .and_then(|url| url.host_str().map(normalize_host))
@@ -457,7 +460,9 @@ pub fn parse_official_html(
         .select(&Selector::parse("script[type='application/ld+json']").unwrap())
         .next()
         .is_some();
-    if content_page || explicit_article_date.is_some() || has_json_ld {
+    if !is_agency_homepage(page_url, &agency.homepage)
+        && (content_page || explicit_article_date.is_some() || has_json_ld)
+    {
         if let (Some(title), Some(date)) = (title, date) {
             if let Some(published_at) = parse_date(&date) {
                 if published_at >= since && published_at < until && title.len() >= 12 {
@@ -500,6 +505,9 @@ pub fn parse_official_html(
             .and_then(|x| x.host_str().map(str::to_owned))
             != base.as_ref().and_then(|x| x.host_str().map(str::to_owned))
         {
+            continue;
+        }
+        if is_agency_homepage(&link, &agency.homepage) {
             continue;
         }
         if link
@@ -1026,6 +1034,7 @@ pub fn parse_catalog_news_index(
     items
 }
 pub fn dedupe(items: Vec<NewsItem>) -> Vec<NewsItem> {
+    let _timer = crate::performance::Timer::new("dedupe_work_seconds");
     let mut seen = std::collections::HashSet::new();
     let mut items = items;
     items.sort_by(|a, b| {
@@ -1069,6 +1078,38 @@ pub fn dedupe(items: Vec<NewsItem>) -> Vec<NewsItem> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    #[test]
+    fn shared_homepage_fixture_keeps_only_dated_articles() {
+        let agency = crate::agencies()
+            .into_iter()
+            .find(|agency| agency.short_name == "BIST")
+            .unwrap();
+        let items = parse_feed_document(
+            include_bytes!("../../../../tests/fixtures/agency_homepage_guard.xml"),
+            &agency,
+            "fixture",
+            Utc.with_ymd_and_hms(2026, 9, 23, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 10, 8, 0, 0, 0).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items
+            .iter()
+            .all(|item| !is_agency_homepage(&item.link, &agency.homepage)));
+        assert!(items
+            .iter()
+            .any(|item| item.content_type == ContentType::Guidance));
+        let html = r#"<h1>Department homepage</h1><meta property="article:published_time" content="2026-10-01T00:00:00Z">"#;
+        assert!(parse_official_html(
+            html,
+            &agency,
+            &agency.homepage,
+            Utc.with_ymd_and_hms(2026, 9, 23, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 10, 8, 0, 0, 0).unwrap()
+        )
+        .is_empty());
+    }
 
     #[test]
     fn shared_feed_fixture_preserves_valid_item() {

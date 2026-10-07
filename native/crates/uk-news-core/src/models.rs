@@ -261,6 +261,8 @@ pub struct RunSummary {
     pub observability: RunObservability,
     #[serde(default)]
     pub record_provenance: Vec<RecordProvenance>,
+    #[serde(default)]
+    pub performance: crate::RunPerformance,
 }
 
 fn default_profile_id() -> String {

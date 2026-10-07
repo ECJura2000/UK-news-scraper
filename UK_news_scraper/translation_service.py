@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .dedupe import normalize_title
+from .performance import http_attempt, http_status
 
 MANUAL_TITLE_TRANSLATIONS = {
     "Building more resilient CNI: what industry pen testers told us": (
@@ -27,6 +28,18 @@ async def translate_titles_async(
     deadline = asyncio.get_running_loop().time() + budget
 
     async with translator_class() as translator:
+        # HTTPX hooks observe actual requests including provider fallback calls;
+        # cache hits and translation jobs that never start are not HTTP attempts.
+        client = getattr(translator, "client", None)
+        if client is not None and isinstance(getattr(client, "event_hooks", None), dict):
+            async def request_hook(request: Any) -> None:
+                http_attempt("translation")
+
+            async def response_hook(response: Any) -> None:
+                http_status("translation", response.status_code)
+
+            client.event_hooks.setdefault("request", []).append(request_hook)
+            client.event_hooks.setdefault("response", []).append(response_hook)
 
         async def translate_one(title: str) -> tuple[str, str]:
             translated_title = ""

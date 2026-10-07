@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.5 - 2026-10-07
+
+- Exclude agency homepages from all news outputs, including dated GOV.UK organisation feed entries and preserved retry data. Keep legitimate article subpages, guidance, publications and reports.
+- Validate publisher domains and link hosts in Google News fallback, enforce Python fallback date bounds, and disclose unverified fallback dates and redirect links in source health and Excel settings.
+- Add compatible run-scoped performance diagnostics to Rust and Python summaries: monotonic stage timings, agency/Parliament pipeline counts, HTTP attempts/retries/429s, and translation-cache context. Keep diagnostics outside fingerprints and delivery IDs; mark detail fetching as disabled.
+- Document the timing endpoints and comparable 3–5-week baseline method. No pre-filter, enrichment, BM25 or concurrency-policy change, and no speedup claim from a single measured run.
+- Add shared feed and output regression coverage, including homepage exclusion, fallback identity/date checks and old/new summary compatibility. Python fallback package version is 1.2.5.
+
 ## 2.3.4 - 2026-10-01
 
 - Update urllib3 to 2.8.0 to address proxy TLS and streamed response vulnerabilities without suppressing dependency audit findings.

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
+from .article_links import is_agency_homepage
 from .models import NewsItem, ParliamentBriefing
+from .performance import timed
 from .profiles import FilterProfile, KeywordStrength, default_profile
 from .scrapers.ministry.utils.text import clean_text, keyword_in_text, normalize_for_match
 
@@ -117,6 +118,7 @@ def assess_relevance(
     )
 
 
+@timed("relevance_seconds")
 def apply_profile_filter[T: NewsItem | ParliamentBriefing](
     items: list[T],
     profile: FilterProfile | None = None,
@@ -124,10 +126,8 @@ def apply_profile_filter[T: NewsItem | ParliamentBriefing](
     active_profile = profile or default_profile()
     filtered: list[T] = []
     for item in items:
-        if isinstance(item, NewsItem):
-            path = urlparse(item.link).path.strip("/").split("/")
-            if len(path) == 3 and path[:2] == ["government", "organisations"]:
-                continue
+        if isinstance(item, NewsItem) and is_agency_homepage(item.link):
+            continue
         assessment = assess_relevance(item.title, item.summary, active_profile)
         if not assessment.included:
             continue

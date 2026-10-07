@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from time import monotonic
 from zoneinfo import ZoneInfo
 
+from .article_links import is_agency_homepage
 from .calendar_utils import CalendarMode, output_filename
 from .config import AGENCIES, DEFAULT_FETCH_BUDGET_SECONDS, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR, DEFAULT_TIMEZONE
 from .dedupe import dedupe_news_items
@@ -15,6 +17,7 @@ from .excel_exporter import ExportOptions, export_news
 from .http.async_client import request_deadline
 from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
 from .observability import summarize_source_health
+from .performance import PipelineCounts, RunPerformance, current_recorder, measured_run, submit
 from .profiles import (
     DEFAULT_PROFILE_ID,
     PARLIAMENT_SOURCE_ID,
@@ -84,6 +87,7 @@ class RunResult:
     filtered_parliament_items: tuple[ParliamentBriefing, ...]
 
 
+@measured_run
 def execute_run(
     request: RunRequest,
     progress: ProgressCallback | None = None,
@@ -123,13 +127,15 @@ def execute_run(
     lock_path = output.parent / f".{run_id}.lock"
 
     with exclusive_lock(lock_path):
+        collection_started = monotonic()
         fetch_deadline = monotonic() + DEFAULT_FETCH_BUDGET_SECONDS
         action = "重新抓取異常來源" if retry_source_ids else "抓取已選取的 UK 新聞來源"
         _emit(progress, "fetch_news", f"正在{action}", 1, 5)
         # Agency and Parliament sources are independent I/O.  Starting both at
         # once removes the serial wait that previously dominated a weekly run.
         with ThreadPoolExecutor(max_workers=2) as executor:
-            agency_future = executor.submit(
+            agency_future = submit(
+                executor,
                 fetch_all_with_status,
                 since,
                 max_workers=request.workers,
@@ -137,7 +143,7 @@ def execute_run(
                 until=until,
             )
             parliament_future = (
-                executor.submit(_fetch_parliament_with_deadline, since, fetch_deadline) if include_parliament else None
+                submit(executor, _fetch_parliament_with_deadline, since, fetch_deadline) if include_parliament else None
             )
             fetch_result = agency_future.result()
             parliament_result = (
@@ -148,6 +154,11 @@ def execute_run(
                     source_mode="未選取",
                 )
             )
+        recorder = current_recorder()
+        if recorder:
+            recorder.duration("collection_wall_seconds", monotonic() - collection_started)
+        fetched_news_count = len(_filter_until(fetch_result.items, until))
+        fetched_parliament_count = len(_filter_until(parliament_result.items, until))
         _check_cancelled(cancelled)
         fetched_items = _filter_until(fetch_result.items, until)
         all_items = _merge_news_items(
@@ -155,6 +166,16 @@ def execute_run(
             fetched_items,
             retry_source_ids,
         )
+
+        homepages = {agency.short_name: agency.homepage for agency in AGENCIES}
+        removed = Counter(
+            _news_source_id(item)
+            for item in all_items
+            if is_agency_homepage(item.link, homepages.get(_news_source_id(item), ""))
+        )
+        all_items = [
+            item for item in all_items if not is_agency_homepage(item.link, homepages.get(_news_source_id(item), ""))
+        ]
 
         _emit(progress, "filter_news", "正在套用主題與關鍵詞設定", 2, 5)
         filtered_items = apply_topic_filter(all_items, active_profile)
@@ -196,6 +217,9 @@ def execute_run(
             parliament_result.source_health,
             retry_source_ids,
         )
+        source_health = tuple(
+            replace(health, item_count=max(0, health.item_count - removed[health.source])) for health in source_health
+        )
         if retry_source_ids:
             status, warnings = evaluate_source_health(source_health)
         else:
@@ -203,6 +227,25 @@ def execute_run(
         data_fingerprint = make_data_fingerprint(all_items, parliament_items)
         delivery_id = make_delivery_id(run_id, status, data_fingerprint)
         generated_at = datetime.now(UTC).isoformat()
+        performance = recorder.data if recorder else RunPerformance()
+        for name, health, deduped, output_count, relevant_count in (
+            ("agency", fetch_result.source_health, fetched_news_count, len(all_items), len(filtered_items)),
+            (
+                "parliament",
+                parliament_result.source_health,
+                fetched_parliament_count,
+                len(parliament_items),
+                len(filtered_parliament_items),
+            ),
+        ):
+            performance.counts[name] = PipelineCounts(
+                candidate_count=sum(x.candidate_count for x in health),
+                source_output_count=sum(x.item_count for x in health),
+                date_filtered_count=deduped,
+                deduped_count=deduped,
+                final_output_count=output_count,
+                relevant_output_count=relevant_count,
+            )
         summary = RunSummary(
             run_id=run_id,
             generated_at=generated_at,
@@ -227,8 +270,13 @@ def execute_run(
             excel_date_calendar=request.export_options.calendar_mode.value,
             observability=summarize_source_health(source_health),
             record_provenance=record_provenance(all_items, parliament_items, generated_at, source_health),
+            performance=performance,
         )
+        if recorder:
+            performance.total_wall_seconds = monotonic() - recorder.started
+        summary_started = monotonic()
         summary_path = write_run_summary(summary, path)
+        print(f"[performance] summary_write_seconds={monotonic() - summary_started:.6f}")
         _emit(progress, "done", "抓取與 Excel 匯出完成", 5, 5)
         return RunResult(
             workbook_path=path,

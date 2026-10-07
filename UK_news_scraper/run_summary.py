@@ -9,6 +9,7 @@ from typing import Any
 
 from .models import NewsItem, ParliamentBriefing, RunStatus, SourceHealth
 from .observability import RunObservability
+from .performance import RunPerformance
 
 DATA_FINGERPRINT_VERSION = "v3"
 
@@ -38,6 +39,7 @@ class RunSummary:
     excel_date_calendar: str = "gregorian"
     observability: RunObservability = field(default_factory=RunObservability)
     record_provenance: tuple[dict[str, str], ...] = ()
+    performance: RunPerformance = field(default_factory=RunPerformance)
 
 
 def write_run_summary(summary: RunSummary, output_path: str | Path) -> Path:

@@ -87,6 +87,15 @@ def test_application_service_writes_custom_filename_and_summary(monkeypatch, tmp
     assert result.summary.observability.source_success_rate == 1.0
     assert result.summary.record_provenance[0]["canonical_url"] == "https://example.com/news"
     assert result.summary.record_provenance[0]["source_id"] == "BIST"
+    metrics = result.summary.performance
+    assert metrics.run_kind == "full"
+    assert metrics.counts["agency"].date_filtered_count == 1
+    assert metrics.counts["agency"].deduped_count == 1
+    assert metrics.counts["agency"].final_output_count == result.summary.all_news_count
+    assert metrics.counts["agency"].relevant_output_count == result.summary.filtered_news_count
+    assert metrics.counts["parliament"].final_output_count == 0
+    assert metrics.stages["relevance_seconds"] > 0
+    assert metrics.total_wall_seconds >= metrics.stages["collection_wall_seconds"]
     assert [event.stage for event in events] == ["fetch_news", "filter_news", "export", "done"]
 
 
@@ -217,3 +226,9 @@ def test_retry_preserves_successful_sources_and_replaces_failed_source(monkeypat
     assert {item.title for item in result.all_items} == {"New BIST item", "ICO item"}
     assert result.summary.status == RunStatus.COMPLETE
     assert [health.source for health in result.summary.source_health] == ["BIST", "ICO"]
+    metrics = result.summary.performance
+    assert metrics.run_kind == "retry"
+    assert metrics.counts["agency"].deduped_count == 1
+    assert metrics.counts["agency"].final_output_count == 2
+    assert metrics.counts["agency"].source_output_count == 1
+    assert base.summary.performance.total_wall_seconds == 0

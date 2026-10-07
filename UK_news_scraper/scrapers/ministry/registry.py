@@ -8,8 +8,9 @@ from typing import Any
 from urllib.parse import quote, urlencode, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
+from ...article_links import is_agency_homepage
 from ...catalog_html import content_type_for_link as _content_type_for_link
 from ...catalog_html import parse_news_index
 from ...config import (
@@ -89,9 +90,7 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                     continue
                 successes += 1
                 found = parse_news_index(html, self.agency, page, since, self.until)
-                all_dated = parse_news_index(
-                    html, self.agency, page, datetime(1990, 1, 1, tzinfo=since.tzinfo), None
-                )
+                all_dated = parse_news_index(html, self.agency, page, datetime(1990, 1, 1, tzinfo=since.tzinfo), None)
                 self.candidate_count += len(found)
                 if all_dated and min(x.published_at for x in all_dated) > since:
                     self.source_warnings.append(
@@ -302,11 +301,8 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                 for url in (self.agency.homepage, *self.agency.news_pages, *self.agency.official_pages)
             ]
             if not link_host or not any(
-                official and (
-                    link_host == official
-                    or link_host.endswith(f".{official}")
-                    or official.endswith(f".{link_host}")
-                )
+                official
+                and (link_host == official or link_host.endswith(f".{official}") or official.endswith(f".{link_host}"))
                 for official in official_hosts
             ):
                 return None
@@ -326,6 +322,8 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
         )
 
     def _is_allowed_link(self, link: str) -> bool:
+        if is_agency_homepage(link, self.agency.homepage):
+            return False
         patterns = self.agency.link_include_patterns
         if not patterns:
             return True
@@ -406,7 +404,12 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                 self.source_warnings.append(f"{self.agency.short_name} 官方補充頁讀取失敗：{page_url}")
                 continue
             successful_sources += 1
-            if not page_items and _page_has_in_range_date(soup, since, self.until):
+            date_scope = (
+                soup.select("article, li, .search-result, .card")
+                if is_agency_homepage(page_url, self.agency.homepage)
+                else [soup]
+            )
+            if not page_items and any(_page_has_in_range_date(node, since, self.until) for node in date_scope):
                 self.candidate_count += 1
                 self.source_warnings.append(f"{self.agency.short_name} 官方頁有期間內日期但解析為零筆：{page_url}")
             items.extend(page_items)
@@ -430,7 +433,11 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
             if not anchor:
                 continue
             link = urljoin(page_url, _attr_text(anchor, "href"))
-            if not self._is_official_link(link, page_url) or link.rstrip("/") in seen_links:
+            if (
+                not self._is_official_link(link, page_url)
+                or not self._is_allowed_link(link)
+                or link.rstrip("/") in seen_links
+            ):
                 continue
             title = clean_text(anchor.get_text(" ", strip=True))
             if len(title) < 12:
@@ -474,6 +481,8 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                 "/report",
             )
         )
+        if is_agency_homepage(page_url, self.agency.homepage):
+            return None
         if not is_content_page and not has_article_metadata:
             return None
         title_node = soup.select_one("h1") or soup.select_one('meta[property="og:title"]') or soup.find("title")
@@ -504,6 +513,10 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
         print(
             f"[info] {self.agency.short_name} 改用 Google News RSS 備援（{len(query_texts)} 組查詢）：{len(items)} 筆"
         )
+        if items:
+            self.source_warnings.append(
+                f"{self.agency.short_name} 使用 Google News 備援；日期取自備援 RSS，未核對官方發布日期"
+            )
         return dedupe_items(items)
 
     def _google_news_query_texts(self) -> tuple[str, ...]:
@@ -524,6 +537,24 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
         for entry in feed.entries:
             published_at = parse_feed_datetime(entry)
             if not published_at or published_at < since:
+                continue
+            if self.until is not None and published_at >= self.until:
+                continue
+            expected_host = {
+                "Ofcom": "ofcom.org.uk",
+                "NPSA": "npsa.gov.uk",
+                "Electoral Commission": "electoralcommission.org.uk",
+            }[self.agency.short_name]
+            publisher_url = getattr(entry, "source", {}).get("href", "")
+            if (
+                publisher_url
+                and (urlparse(publisher_url).hostname or "").casefold().removeprefix("www.") != expected_host
+            ):
+                self.source_warnings.append(f"{self.agency.short_name} 備援資料發布者不符，已排除")
+                continue
+            link = getattr(entry, "link", "")
+            link_host = (urlparse(link).hostname or "").casefold().removeprefix("www.")
+            if link_host not in {expected_host, "news.google.com"} or is_agency_homepage(link, self.agency.homepage):
                 continue
             title = clean_text(getattr(entry, "title", ""))
             if self.agency.short_name == "Ofcom":
@@ -675,7 +706,7 @@ def _date_from_text(text: str, pattern: str) -> datetime | None:
     return parse_datetime_text(match.group(1))
 
 
-def _page_has_in_range_date(soup: BeautifulSoup, since: datetime, until: datetime | None) -> bool:
+def _page_has_in_range_date(soup: Tag, since: datetime, until: datetime | None) -> bool:
     start_date = since.astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date()
     end_date = until.astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date() if until else None
     for node in soup.select("time[datetime], meta[property='article:published_time'], meta[name='datePublished']"):

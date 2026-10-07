@@ -42,7 +42,20 @@ pub(super) async fn google_news_fallback(
             .bytes(transport.get(&source), observations)
             .await?;
         let feed = parser::parse(&bytes[..]).map_err(|e| e.to_string())?;
+        // feed-rs does not retain RSS <source url>; preserve it for publisher checks.
+        let publishers = rss_publishers(&bytes);
+        let expected_host = match agency.short_name.as_str() {
+            "Ofcom" => "ofcom.org.uk",
+            "NPSA" => "npsa.gov.uk",
+            _ => "electoralcommission.org.uk",
+        };
         for entry in feed.entries {
+            if publishers
+                .get(&entry.id)
+                .is_some_and(|publisher| !publisher_matches(publisher, expected_host))
+            {
+                continue;
+            }
             let Some(published) = entry.published.or(entry.updated) else {
                 continue;
             };
@@ -85,7 +98,15 @@ pub(super) async fn google_news_fallback(
                 .first()
                 .map(|x| x.href.clone())
                 .unwrap_or_default();
-            if link.is_empty() {
+            let host = url::Url::parse(&link).ok().and_then(|url| {
+                url.host_str()
+                    .map(|host| host.trim_start_matches("www.").to_string())
+            });
+            if !host
+                .as_deref()
+                .is_some_and(|host| host == expected_host || host == "news.google.com")
+                || uk_news_core::is_agency_homepage(&link, &agency.homepage)
+            {
                 continue;
             }
             items.push(NewsItem {
@@ -144,4 +165,41 @@ pub(super) fn health_warning(source: &str, items: &[NewsItem], since: DateTime<U
         }
     }
     String::new()
+}
+
+fn rss_publishers(bytes: &[u8]) -> std::collections::HashMap<String, String> {
+    let doc = scraper::Html::parse_document(&String::from_utf8_lossy(bytes));
+    let items = scraper::Selector::parse("item").unwrap();
+    let guid = scraper::Selector::parse("guid").unwrap();
+    let source = scraper::Selector::parse("source[url]").unwrap();
+    doc.select(&items)
+        .filter_map(|item| {
+            let id = item.select(&guid).next()?.text().collect::<String>();
+            let publisher = item.select(&source).next()?.value().attr("url")?;
+            Some((id.trim().to_string(), publisher.to_string()))
+        })
+        .collect()
+}
+
+fn publisher_matches(publisher: &str, expected_host: &str) -> bool {
+    url::Url::parse(publisher).is_ok_and(|url| {
+        url.host_str()
+            .is_some_and(|host| host.trim_start_matches("www.") == expected_host)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rss_publisher_cannot_spoof_the_official_domain() {
+        let xml = br#"<rss><channel><item><guid>article-1</guid><source url="https://www.ofcom.org.uk">Ofcom</source></item><item><guid>article-2</guid><source url="https://ofcom.org.uk.evil.example">Ofcom</source></item></channel></rss>"#;
+        let sources = rss_publishers(xml);
+        assert!(publisher_matches(&sources["article-1"], "ofcom.org.uk"));
+        assert!(!publisher_matches(&sources["article-2"], "ofcom.org.uk"));
+        assert!(!publisher_matches(
+            "https://third-party.example/ofcom.org.uk",
+            "ofcom.org.uk"
+        ));
+    }
 }

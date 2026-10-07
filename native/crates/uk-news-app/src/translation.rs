@@ -5,13 +5,25 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     fs,
+    future::Future,
     path::{Path, PathBuf},
+    pin::Pin,
 };
 use tokio::time::{timeout, Duration, Instant};
 
-#[async_trait]
+pub type TranslationFuture<'a> = Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>>;
+
 pub trait TranslationProvider: Send + Sync {
-    async fn translate(&self, text: &str) -> Result<String>;
+    // The explicit erased-future signature retains async-trait implementation
+    // compatibility without generating a redundant must_use attribute.
+    fn translate<'provider, 'text, 'future>(
+        &'provider self,
+        text: &'text str,
+    ) -> TranslationFuture<'future>
+    where
+        'provider: 'future,
+        'text: 'future,
+        Self: 'future;
 }
 pub struct FreeGoogleProvider {
     client: reqwest::Client,

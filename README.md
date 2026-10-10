@@ -96,6 +96,12 @@ v2.2 使用 Rust 抓取與匯出核心，以及 Tauri 2 + React/TypeScript 桌�
 macOS 對應 BiauKaiTC，Windows 對應 DFKai-SB。Linux 若未安裝這些字型，
 系統會以可用的襯線字型替代。
 
+介面以「執行紀錄」為首頁：左側選取報表，右側檢視摘要的邏輯筆數、
+來源健康，並開啟 Excel 或重試異常來源。「新查詢」管理日期與來源，
+「主題設定」管理設定檔與關鍵詞；執行進度與取消操作在各頁皆可見。
+開發時可在前端網址加上 `?preview=design` 檢視示例資料；此預覽不抓取
+新聞、不建立檔案，原生桌面程式始終使用實際後端。
+
 需要新增搜尋主題時，下載並複製[範例主題設定檔](examples/uk-topic-profile.example.json)，
 修改 `profile_id`、`name`、`topics`、關鍵詞強度及 `selected_sources`。
 桌面版按「匯入 JSON」選取單一主題設定檔，通過驗證後會保存在本機並自動選用；

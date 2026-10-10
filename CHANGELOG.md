@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.6 - 2026-10-10
+
+- Redesign the native desktop UI around a weekly report library, with separate query and topic-setting pages, source health, Excel access, and failed-source retry.
+- Preserve Chinese Kai typography and English Times New Roman throughout controls; adapt narrow windows with a scrollable report list and readable summaries.
+- Keep logical counts authoritative from run summaries, isolate report selection by run and output path, and ignore stale asynchronous folder/date responses.
+- Validate invalid date ranges immediately, preserve progress/cancellation and result filtering, and add report-library regression tests.
+- Add an explicitly opt-in browser design preview using illustrative data; native commands always use the real backend. Collection, Excel content, fingerprints, and delivery behavior remain unchanged.
+
 ## 2.3.5 - 2026-10-07
 
 - Exclude agency homepages from all news outputs, including dated GOV.UK organisation feed entries and preserved retry data. Keep legitimate article subpages, guidance, publications and reports.

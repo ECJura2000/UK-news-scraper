@@ -8,6 +8,7 @@
 
 資料流、模組責任、資料結構選擇與複雜度分析請見 [架構說明](ARCHITECTURE.md)。
 Capacity, dedupe, and concurrency measurements are documented in [PERFORMANCE.md](PERFORMANCE.md).
+來源解析檢查、固定篩選驗證集、效能基準與警告處理請見 [品質與效能診斷](docs/QUALITY_DIAGNOSTICS.md)。
 Deployment, source maintenance, and delivery recovery are documented in [docs/MAINTENANCE.md](docs/MAINTENANCE.md).
 
 ## 下載
@@ -49,7 +50,9 @@ Excel 與 `.run.json`。結果頁支援文字、類型、詞強度、來源、�
 python3 -m UK_news_scraper
 ```
 
-預設會依 `Asia/Taipei` 日曆日回推 14 天。從原始碼執行時輸出到專案的
+預設會先透過國家標準時間 NTP 校正程式時計，再依 `Asia/Taipei` 日曆日回推 14 天。
+連線失敗時使用本機時間並顯示警告；校時結果保存在執行摘要。
+連線測試與詳細規則請見 [國家標準時間](docs/STANDARD_TIME.md)。從原始碼執行時輸出到專案的
 `新聞放置區/`；封裝版輸出到桌面的 `UK新聞抓取/新聞放置區/`。預設檔名
 為 `{起始日YYYYMMDD}-{結束日YYYYMMDD}_UK新聞查詢.xlsx`。
 

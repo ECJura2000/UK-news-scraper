@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from .calendar_utils import CalendarMode, gregorian_to_roc
 from .font_policy import CHINESE_FONT, ENGLISH_FONT
+from .standard_time import today_taipei
 
 COLORS = {
     "paper": "#F7F3E8",
@@ -118,7 +119,7 @@ class DateSelector(ttk.Frame):
             return self._value
 
     def _refresh(self) -> None:
-        current_year = date.today().year + 1
+        current_year = today_taipei().year + 1
         if self._mode is CalendarMode.ROC:
             years = [f"民國{year}年" for year in range(1, current_year - 1911 + 1)]
             display_year = gregorian_to_roc(self._value)[0]

@@ -38,6 +38,7 @@ from .scrapers.ministry.orchestration import fetch_all_with_status
 from .scrapers.ministry.registry import apply_parliament_topic_filter, apply_topic_filter
 from .scrapers.ministry.status import FetchAllResult
 from .scrapers.parliament import ParliamentFetchResult, fetch_parliament_briefings
+from .standard_time import now_utc, status_payload, synchronize
 
 ProgressCallback = Callable[["ProgressEvent"], None]
 CancelCallback = Callable[[], bool]
@@ -99,6 +100,9 @@ def execute_run(
         raise ValueError("worker 數必須大於等於 1")
     _check_cancelled(cancelled)
 
+    sync = synchronize()
+    if sync.warning:
+        print(f"[warn] {sync.warning}")
     active_profile = request.profile or default_profile()
     retry_source_ids = set(request.retry_source_ids)
     if retry_source_ids and request.base_result is None:
@@ -226,7 +230,7 @@ def execute_run(
             status, warnings = evaluate_run_status(fetch_result, parliament_result)
         data_fingerprint = make_data_fingerprint(all_items, parliament_items)
         delivery_id = make_delivery_id(run_id, status, data_fingerprint)
-        generated_at = datetime.now(UTC).isoformat()
+        generated_at = now_utc().isoformat()
         performance = recorder.data if recorder else RunPerformance()
         for name, health, deduped, output_count, relevant_count in (
             ("agency", fetch_result.source_health, fetched_news_count, len(all_items), len(filtered_items)),
@@ -271,6 +275,7 @@ def execute_run(
             observability=summarize_source_health(source_health),
             record_provenance=record_provenance(all_items, parliament_items, generated_at, source_health),
             performance=performance,
+            time_sync=status_payload(),
         )
         if recorder:
             performance.total_wall_seconds = monotonic() - recorder.started

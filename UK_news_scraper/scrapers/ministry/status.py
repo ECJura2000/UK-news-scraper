@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from ...config import SOURCE_HEALTH_MAX_AGE_DAYS, SOURCE_HEALTH_MIN_ITEMS
 from ...models import EndpointObservation, NewsItem, SourceHealth
+from ...standard_time import now_utc
 
 
 @dataclass
@@ -61,7 +62,7 @@ def health_warning(source_name: str, items: list[NewsItem], since: datetime) -> 
     if item_count < minimum:
         return f"{source_name} 筆數異常：取得 {item_count} 筆，低於健康門檻 {minimum} 筆"
     maximum_age_days = SOURCE_HEALTH_MAX_AGE_DAYS.get(source_name)
-    now = datetime.now(UTC)
+    now = now_utc()
     if (
         maximum_age_days is not None
         and items

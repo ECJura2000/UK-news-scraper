@@ -64,3 +64,12 @@ deadline. Source health includes endpoint response evidence and parser candidate
 The run summary records source success, zero-item ratio, p95 duration, and additive
 record provenance. These fields are diagnostic and are omitted from fingerprint v3;
 only a verified parser anomaly or unhealthy required source changes run status.
+
+## Application Clock
+
+Python `standard_time.py` and Rust `uk-news-core::standard_time` implement bounded
+SNTP queries against the five National Standard Time servers. Calibrated UTC is
+anchored to monotonic elapsed time; Taipei remains the calendar/display timezone.
+`time_sync` is additive diagnostic metadata outside fingerprints and delivery IDs.
+Offline/runtime-only checks retain system time without querying NTP. See
+[國家標準時間](docs/STANDARD_TIME.md) for cache, fallback and validation rules.

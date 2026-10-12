@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from time import monotonic
 from typing import Any
 from urllib.parse import urlencode, urljoin
@@ -18,6 +18,7 @@ from ...http.async_client import current_request_deadline, get_json, get_text, r
 from ...models import EndpointObservation, ParliamentBriefing, SourceHealth
 from ...performance import submit, timed
 from ...rss import parse_feed
+from ...standard_time import now_utc
 from ..ministry.utils.date import parse_datetime_text, parse_feed_datetime
 from ..ministry.utils.text import clean_text
 
@@ -541,7 +542,7 @@ def _source_health(
     if success and len(items) < minimum:
         warning = f"{source} 筆數異常：取得 {len(items)} 筆，低於健康門檻 {minimum} 筆"
     newest = max((item.published_at for item in items), default=None)
-    now = datetime.now(UTC)
+    now = now_utc()
     if (
         not warning
         and newest
@@ -560,6 +561,6 @@ def _source_health(
         newest_published_at=newest.isoformat() if newest else "",
         warning=warning,
         candidate_count=len(items),
-        fetched_at=endpoints[-1].fetched_at if endpoints else datetime.now(UTC).isoformat(),
+        fetched_at=endpoints[-1].fetched_at if endpoints else now_utc().isoformat(),
         endpoints=endpoints,
     )

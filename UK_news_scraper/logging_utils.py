@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
 from typing import Any
+
+from .standard_time import now_utc
 
 
 def log_event(level: str, event: str, message: str, **fields: Any) -> None:
     if os.environ.get("UK_NEWS_LOG_FORMAT", "").casefold() == "json":
         payload = {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": now_utc().isoformat(),
             "level": level,
             "event": event,
             "message": message,

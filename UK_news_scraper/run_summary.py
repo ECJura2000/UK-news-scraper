@@ -39,6 +39,7 @@ class RunSummary:
     excel_date_calendar: str = "gregorian"
     observability: RunObservability = field(default_factory=RunObservability)
     record_provenance: tuple[dict[str, str], ...] = ()
+    time_sync: dict[str, Any] = field(default_factory=dict)
     performance: RunPerformance = field(default_factory=RunPerformance)
 
 

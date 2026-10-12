@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -15,6 +14,7 @@ from typing import Any
 from .models import RunStatus
 from .run_summary import validate_run_summary_payload
 from .runtime_lock import exclusive_lock
+from .standard_time import now_utc
 
 DEFAULT_REGISTRY = Path.home() / ".codex" / "automations" / "uk" / "sent_run_ids.json"
 
@@ -74,7 +74,7 @@ def claim_delivery(summary_path: str | Path, registry_path: str | Path = DEFAULT
             run_id=summary["run_id"],
             status=summary["status"],
             data_fingerprint=summary["data_fingerprint"],
-            claimed_at=datetime.now(UTC).isoformat(),
+            claimed_at=now_utc().isoformat(),
             excel_path=summary["output_file"],
         ).to_dict()
         _atomic_write_json(registry_path, registry)
@@ -95,7 +95,7 @@ def complete_delivery(
         record = DeliveryRecord.from_dict(raw_record)
         record.state = DeliveryState.SENT
         record.message_id = message_id
-        record.sent_at = datetime.now(UTC).isoformat()
+        record.sent_at = now_utc().isoformat()
         registry[delivery_id] = record.to_dict()
         _atomic_write_json(registry_path, registry)
     return dict(registry[delivery_id])

@@ -252,7 +252,7 @@ pub async fn fetch_agencies_with_progress(
                     fetched_at: observations
                         .last()
                         .map(|observation| observation.fetched_at.clone())
-                        .unwrap_or_else(|| Utc::now().to_rfc3339()),
+                        .unwrap_or_else(|| uk_news_core::standard_time::now_utc().to_rfc3339()),
                     endpoints: observations,
                 };
                 if let Some(progress) = progress {
@@ -512,7 +512,7 @@ mod selection_tests {
 
     #[tokio::test]
     async fn empty_selection_does_not_fetch_entire_catalog() {
-        let now = Utc::now();
+        let now = uk_news_core::standard_time::now_utc();
         let result = fetch_agencies(now, now, 6, &[]).await;
         assert!(result.items.is_empty());
         assert!(result.health.is_empty());

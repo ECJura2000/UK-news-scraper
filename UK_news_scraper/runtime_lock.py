@@ -5,8 +5,9 @@ import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from datetime import UTC, datetime
 from pathlib import Path
+
+from .standard_time import now_utc
 
 
 class LockUnavailable(RuntimeError):
@@ -34,7 +35,7 @@ def exclusive_lock(
 
     payload = {
         "pid": os.getpid(),
-        "created_at": datetime.now(UTC).isoformat(),
+        "created_at": now_utc().isoformat(),
     }
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:

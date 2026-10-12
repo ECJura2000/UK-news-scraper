@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::{Datelike, Days, NaiveDate, Utc};
+use chrono::{Datelike, Days, NaiveDate};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -38,6 +38,8 @@ struct Cli {
     ui: bool,
     #[arg(long)]
     check_runtime: bool,
+    #[arg(long)]
+    check_time: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -106,6 +108,20 @@ fn entry() -> Result<()> {
     if let Some(Command::DeliveryRegistry(d)) = cli.command {
         return delivery(d);
     }
+    if cli.check_time {
+        uk_news_core::standard_time::synchronize(true);
+        let state = uk_news_core::standard_time::status();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &serde_json::json!({"time_sync": state, "utc": uk_news_core::standard_time::now_utc().to_rfc3339()})
+            )?
+        );
+        if state.source != "ntp" {
+            anyhow::bail!("{}", state.warning);
+        }
+        return Ok(());
+    }
     if cli.check_runtime {
         println!(
             "原生執行環境檢查通過；scrapers={} runtime=rust fingerprint=v3",
@@ -120,6 +136,7 @@ fn entry() -> Result<()> {
     {
         return launch_ui();
     }
+    uk_news_core::standard_time::synchronize(false);
     let (since, until) = resolve_dates(&cli)?;
     let profile = load_profile(cli.profile.as_deref())?;
     let output = cli
@@ -175,7 +192,7 @@ fn parse_date(s: &str) -> Result<NaiveDate> {
         .with_context(|| format!("日期格式錯誤：{s}"))
 }
 fn resolve_dates(cli: &Cli) -> Result<(NaiveDate, NaiveDate)> {
-    let today = Utc::now()
+    let today = uk_news_core::standard_time::now_utc()
         .with_timezone(&chrono_tz::Asia::Taipei)
         .date_naive();
     if let Some(s) = &cli.since {
@@ -438,11 +455,23 @@ fn recent_runs(output_dir: String) -> Vec<uk_news_core::RunSummary> {
     runs.truncate(20);
     runs
 }
+#[tauri::command]
+async fn current_time() -> Result<serde_json::Value, String> {
+    tokio::task::spawn_blocking(|| uk_news_core::standard_time::synchronize(false))
+        .await
+        .map_err(|e| e.to_string())?;
+    let state = uk_news_core::standard_time::status();
+    let mut value = serde_json::to_value(state).map_err(|e| e.to_string())?;
+    value["utc"] = serde_json::json!(uk_news_core::standard_time::now_utc().to_rfc3339());
+    Ok(value)
+}
+
 fn launch_ui() -> Result<()> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            current_time,
             source_catalog,
             suggested_output,
             built_in_profile,

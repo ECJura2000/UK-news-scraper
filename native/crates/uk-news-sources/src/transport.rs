@@ -111,7 +111,7 @@ impl Transport {
                     observations.push(EndpointObservation {
                         url: endpoint_url.to_string(),
                         status_code: status.as_u16(),
-                        fetched_at: Utc::now().to_rfc3339(),
+                        fetched_at: uk_news_core::standard_time::now_utc().to_rfc3339(),
                         response_sha256: String::new(),
                         etag,
                         last_modified,
@@ -127,7 +127,7 @@ impl Transport {
             observations.push(EndpointObservation {
                 url: endpoint_url.to_string(),
                 status_code: status.as_u16(),
-                fetched_at: Utc::now().to_rfc3339(),
+                fetched_at: uk_news_core::standard_time::now_utc().to_rfc3339(),
                 response_sha256: format!("{:x}", Sha256::digest(&body)),
                 etag,
                 last_modified,
@@ -163,7 +163,11 @@ fn retry_after(value: Option<&str>) -> Duration {
     }
     DateTime::parse_from_rfc2822(value)
         .ok()
-        .and_then(|date| (date.with_timezone(&Utc) - Utc::now()).to_std().ok())
+        .and_then(|date| {
+            (date.with_timezone(&Utc) - uk_news_core::standard_time::now_utc())
+                .to_std()
+                .ok()
+        })
         .unwrap_or(Duration::from_secs(1))
 }
 
@@ -171,7 +175,7 @@ fn empty_observation(url: &str) -> EndpointObservation {
     EndpointObservation {
         url: url.into(),
         status_code: 0,
-        fetched_at: Utc::now().to_rfc3339(),
+        fetched_at: uk_news_core::standard_time::now_utc().to_rfc3339(),
         response_sha256: String::new(),
         etag: String::new(),
         last_modified: String::new(),

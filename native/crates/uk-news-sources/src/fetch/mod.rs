@@ -23,7 +23,7 @@ fn last_fetched_at(observations: &[EndpointObservation]) -> String {
     observations
         .last()
         .map(|observation| observation.fetched_at.clone())
-        .unwrap_or_else(|| Utc::now().to_rfc3339())
+        .unwrap_or_else(|| uk_news_core::standard_time::now_utc().to_rfc3339())
 }
 
 fn page_has_in_range_date(html: &str, since: DateTime<Utc>, until: DateTime<Utc>) -> bool {

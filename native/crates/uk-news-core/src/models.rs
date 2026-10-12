@@ -263,6 +263,8 @@ pub struct RunSummary {
     pub record_provenance: Vec<RecordProvenance>,
     #[serde(default)]
     pub performance: crate::RunPerformance,
+    #[serde(default)]
+    pub time_sync: crate::standard_time::TimeSync,
 }
 
 fn default_profile_id() -> String {

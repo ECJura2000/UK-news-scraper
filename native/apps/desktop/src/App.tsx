@@ -5,6 +5,7 @@ import clockTower from './assets/clock-tower.png';
 import { ReportLibrary } from './ReportLibrary';
 import { reportKey, reportList, selectReport, type Summary } from './reportModel';
 import { defaultPeriod } from './period';
+import { clockDate, headerTime, timeSourceLabel, type ClockSnapshot, type TimeSync } from './standardTime';
 import { parseProfileJson, type Profile } from './profileImport';
 import { buildRunRequest, workerChoices } from './runRequest';
 import './style.css';
@@ -23,6 +24,10 @@ const outputDirectory = (path: string) => { const value = path.replace(/[\\/][^\
 function App() {
   const profileImportRef = useRef<HTMLInputElement>(null);
   const initial = defaultPeriod(new Date());
+  const [clockTick, setClockTick] = useState(() => performance.now());
+  const [clock, setClock] = useState<ClockSnapshot>();
+  const dateEdited = useRef(false);
+  const header = headerTime(clock, clockTick);
   const [sources, setSources] = useState<Agency[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -57,9 +62,19 @@ function App() {
   const activeReport = selectReport(reports, selectedReportKey);
   const selectLibraryReport = (summary: Summary) => { setSelectedReportKey(reportKey(summary)); setShowHealth(false) };
 
+  useEffect(() => { const timer = window.setInterval(() => setClockTick(performance.now()), 1000); return () => window.clearInterval(timer) }, []);
+
   function selectProfile(value: Profile) { setProfile(value); setSelected(new Set(value.selected_sources)); setMinimumScore(value.minimum_score) }
   async function refreshProfiles(preferred?: string) { const values = await invoke<Profile[]>('list_profiles'); setProfiles(values); const next = values.find(item => item.profile_id === preferred) ?? values[0]; if (next) selectProfile(next) }
 
+  useEffect(() => { let active = true; const sync = () => { void invoke<TimeSync>('current_time').then(state => {
+    if (!active) return;
+    const snapshot = { state, anchoredAt: performance.now() };
+    setClock(snapshot); setClockTick(performance.now());
+    if (!dateEdited.current) { const period = defaultPeriod(clockDate(snapshot)); setSince(period.since); setUntil(period.until) }
+  }).catch(() => { if (active) setClock({ state: { source: 'system', utc: new Date().toISOString(), warning: '校時服務無法連線' }, anchoredAt: performance.now() }) }) };
+    sync(); const timer = window.setInterval(sync, 30 * 60 * 1000); return () => { active = false; window.clearInterval(timer) };
+  }, []);
   useEffect(() => { Promise.all([invoke<CatalogEntry[]>('source_catalog'), invoke<ProfileReport>('profile_load_report')]).then(([catalog, report]) => { setSources([...catalog.map(item => ({ short_name: item.id, name_zh: item.name_zh || item.name_en, name_en: item.name_en, topics: [item.kind], homepage: item.homepage, jurisdiction: item.jurisdiction, kind: item.kind, searchable: item.status === 'searchable', reason: item.reason })), { short_name: 'UK Parliament', name_zh: '英國國會研究資料', name_en: 'UK Parliament Research Briefings', topics: ['Commons Library', 'Lords Library', 'POST'], homepage: 'https://www.parliament.uk/', jurisdiction: 'UK', kind: '國會', searchable: true, reason: '' }]); setProfiles(report.profiles); if (report.profiles[0]) selectProfile(report.profiles[0]); if (report.warning) setError(report.warning) }).catch(reason => setError(String(reason))) }, []);
   useEffect(() => { let active = true; let unlisten: (() => void) | undefined; listen<RunProgress>('scraper-progress', event => { if (active) setProgress(event.payload) }).then(stop => { if (active) unlisten = stop; else stop() }).catch(reason => { if (active) setError(String(reason)) }); return () => { active = false; unlisten?.() } }, []);
   useEffect(() => { const notify = (event: Event) => setPreviewNotice((event as CustomEvent<string>).detail); window.addEventListener('preview-notice', notify); return () => window.removeEventListener('preview-notice', notify) }, []);
@@ -90,7 +105,7 @@ function App() {
   function updateKeywords(topicIndex: number, strength: string, value: string) { if (!profile) return; const phrases = value.split(/[,，\n]/).map(item => item.trim()).filter(Boolean); setProfile({ ...profile, topics: profile.topics.map((topic, index) => index === topicIndex ? { ...topic, keywords: [...topic.keywords.filter(item => item.strength !== strength), ...phrases.map(phrase => ({ phrase, strength }))] } : topic) }) }
 
   return <main className="app-shell">
-    <header className="app-header"><div className="brand"><img src={clockTower} alt="" className="brand-mark" /><span>UK 新聞與官方文件觀測</span><span className="brand-subtitle">Weekly Report Library</span></div><div className="header-tools"><time>{initial.until}（台北時間）</time><button className="icon-button" aria-label="使用說明" onClick={() => setHelpOpen(!helpOpen)}><Question /></button><button className="icon-button" disabled={running} aria-label="主題設定" onClick={() => setPage('settings')}><SlidersHorizontal /></button></div></header>
+    <header className="app-header"><div className="brand"><img src={clockTower} alt="" className="brand-mark" /><span>UK 新聞與官方文件觀測</span><span className="brand-subtitle">Weekly Report Library</span></div><div className="header-tools"><time dateTime={header.date} title={timeSourceLabel(clock?.state)}>{header.date}（{header.label}）</time><button className="icon-button" aria-label="使用說明" onClick={() => setHelpOpen(!helpOpen)}><Question /></button><button className="icon-button" disabled={running} aria-label="主題設定" onClick={() => setPage('settings')}><SlidersHorizontal /></button></div></header>
     <div className="app-body"><nav className="sidebar" aria-label="主要功能"><div className="nav-items">{([{ key: 'history', label: '執行紀錄', icon: ClockCounterClockwise }, { key: 'query', label: '新查詢', icon: MagnifyingGlass }, { key: 'settings', label: '主題設定', icon: SlidersHorizontal }] as const).map(item => <button key={item.key} className={page === item.key ? 'active' : ''} aria-current={page === item.key ? 'page' : undefined} disabled={running && page !== item.key} onClick={() => setPage(item.key)}><item.icon />{item.label}</button>)}</div><div className="sidebar-bottom"><button onClick={() => setHelpOpen(!helpOpen)}><Question />使用說明</button><button disabled={running} onClick={() => setPage(page === 'query' ? 'history' : 'query')}><ArrowLeft />{page === 'query' ? '回到執行紀錄' : '回到設定流程'}</button></div></nav>
     <div className="workspace">
     {designPreview && <p className="preview-banner" role="note">設計預覽 · 使用示例資料，操作不抓取新聞、不產生檔案。</p>}
@@ -103,14 +118,15 @@ function App() {
       <div className="panel"><h2>執行設定</h2>
         <label>主題設定檔<select value={profile?.profile_id ?? ''} onChange={event => { const value = profiles.find(item => item.profile_id === event.target.value); if (value) selectProfile(value) }}>{profiles.map(item => <option key={item.profile_id} value={item.profile_id}>{item.name}</option>)}</select></label>
         <button className="text-button" onClick={() => setPage('settings')}>管理主題設定</button>
-        <div className="date-presets" role="group" aria-label="常用查詢期間">{[7, 14, 30].map(days => <button type="button" key={days} disabled={running} onClick={() => { const period = defaultPeriod(new Date(), days); setSince(period.since); setUntil(period.until) }}>最近 {days} 天</button>)}</div>
-        <div className="dates"><label>開始日期<input type="date" value={since} onInput={event => setSince(event.currentTarget.value)} onChange={event => setSince(event.target.value)} /></label><label>結束日期<input type="date" value={until} onInput={event => setUntil(event.currentTarget.value)} onChange={event => setUntil(event.target.value)} /></label></div>
+        <p role="status">{timeSourceLabel(clock?.state)}</p>
+        <div className="date-presets" role="group" aria-label="常用查詢期間">{[7, 14, 30].map(days => <button type="button" key={days} disabled={running || !clock} onClick={() => { dateEdited.current = true; const period = defaultPeriod(clockDate(clock), days); setSince(period.since); setUntil(period.until) }}>最近 {days} 天</button>)}</div>
+        <div className="dates"><label>開始日期<input type="date" value={since} onInput={event => { dateEdited.current = true; setSince(event.currentTarget.value) }} onChange={event => { dateEdited.current = true; setSince(event.target.value) }} /></label><label>結束日期<input type="date" value={until} onInput={event => { dateEdited.current = true; setUntil(event.currentTarget.value) }} onChange={event => { dateEdited.current = true; setUntil(event.target.value) }} /></label></div>
         {until < since && <p className="date-error" role="alert">結束日期不得早於開始日期。</p>}
         <details className="advanced-options"><summary>進階選項</summary><label>最低相關性分數<input type="number" min="1" max="99" value={minimumScore} onChange={event => setMinimumScore(Number(event.target.value))} /></label>
         <label>機關來源併發數<select value={workers} disabled={running} onChange={event => setWorkers(Number(event.target.value))}>{workerChoices.map(count => <option key={count} value={count}>{count} 個來源</option>)}</select></label>
         <label>Excel 日期<select value={calendar} onChange={event => setCalendar(event.target.value)}><option value="gregorian">西元</option><option value="roc">民國</option></select></label>
         </details><label>輸出檔<div className="file"><input value={output} onChange={event => { setCustomOutput(true); setOutput(event.target.value) }} /><button disabled={running} onClick={choose}>選擇</button></div></label>
-        <button className="primary run" disabled={running || !output || selected.size === 0 || until < since} onClick={run}><Plus />{running ? '執行中' : '開始查詢'}</button>
+        <button className="primary run" disabled={running || !clock || !output || selected.size === 0 || until < since} onClick={run}><Plus />{running ? '執行中' : '開始查詢'}</button>
       </div>
       <div className="panel sources"><div className="source-head"><div><h2>官方來源</h2><small>{selected.size} 個來源已選取 · 目錄 {sources.length} 筆</small></div><input placeholder="搜尋機關、團體或法院" value={query} onChange={event => { setQuery(event.target.value); setSourceLimit(60) }} /></div><label>地區<select value={jurisdiction} onChange={event => { setJurisdiction(event.target.value); setSourceLimit(60) }}><option value="all">全部地區</option><option value="UK">英國中央</option><option value="Scotland">蘇格蘭</option><option value="Wales">威爾斯</option><option value="England and Wales">英格蘭及威爾斯法院</option><option value="Northern Ireland">北愛爾蘭</option></select></label><div className="cards">{shown.map(source => <label className="source" key={source.short_name} title={source.searchable ? source.homepage : source.reason}><input type="checkbox" disabled={!source.searchable} checked={selected.has(source.short_name)} onChange={() => setSelected(previous => { const next = new Set(previous); next.has(source.short_name) ? next.delete(source.short_name) : next.add(source.short_name); return next })} /><span><strong>{source.name_zh}</strong><em>{source.name_en}</em><small>JSON ID：{source.short_name}</small><small>{source.jurisdiction} · {source.kind} · {source.searchable ? '可查詢' : '僅列名：' + source.reason}</small></span></label>)}</div>{matchingSources.length > shown.length && <button type="button" onClick={() => setSourceLimit(value => value + 60)}>顯示更多（尚有 {matchingSources.length - shown.length} 筆）</button>}</div>
     </section></fieldset></>}

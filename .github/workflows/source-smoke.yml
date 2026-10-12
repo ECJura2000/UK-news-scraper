@@ -8,10 +8,19 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    continue-on-error: true
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - run: python scripts/smoke_sources.py
+      - run: python -m pip install -r requirement-lock.txt
+      - run: python -m scripts.smoke_sources --output 新聞放置區/source-smoke.json
+      - name: Preserve source evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: source-smoke-evidence
+          path: 新聞放置區/source-smoke.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -157,9 +157,9 @@ pub(super) fn health_warning(source: &str, items: &[NewsItem], since: DateTime<U
         "AISI" | "GDS" | "NPSA" | "UKRI" => Some(60),
         _ => None,
     };
-    if since >= Utc::now() - chrono::Duration::days(30) {
+    if since >= uk_news_core::standard_time::now_utc() - chrono::Duration::days(30) {
         if let (Some(days), Some(newest)) = (max_age, items.iter().map(|x| x.published_at).max()) {
-            if newest < Utc::now() - chrono::Duration::days(days) {
+            if newest < uk_news_core::standard_time::now_utc() - chrono::Duration::days(days) {
                 return format!("{source} 最新資料已超過 {days} 天");
             }
         }

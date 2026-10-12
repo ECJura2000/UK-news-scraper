@@ -1,5 +1,5 @@
 import { ArrowSquareOut, ArrowClockwise, CheckCircle, Warning, CaretRight, FileXls, MagnifyingGlass, Plus } from '@phosphor-icons/react';
-import { needsRetry, reportKey, reportStatus, reportTimestamp, type Summary } from './reportModel';
+import { needsRetry, reportKey, reportStatus, reportTimestamp, healthAdvice, measuredPerformance, stageLabels, durationText, type Summary } from './reportModel';
 
 type Props = {
   reports: Summary[]; selected?: Summary; running: boolean; showAllHealth: boolean;
@@ -8,6 +8,7 @@ type Props = {
 };
 
 export function ReportLibrary({ reports, selected, running, showAllHealth, onSelect, onCreate, onOpen, onRetry, onToggleHealth, onPreview }: Props) {
+  const performance = selected && measuredPerformance(selected);
   const health = selected ? [...selected.source_health].sort((a, b) => Number(!b.success || Boolean(b.warning)) - Number(!a.success || Boolean(a.warning))) : [];
   return <section className="report-page">
     <div className="page-heading"><div><h1>每週報表</h1><p>檢視查詢紀錄與產出結果，開啟 Excel，或查看需要重試的來源。</p></div><button className="primary" disabled={running} onClick={onCreate}><Plus />新增查詢</button></div>
@@ -18,10 +19,17 @@ export function ReportLibrary({ reports, selected, running, showAllHealth, onSel
         <dl className="report-counts"><div><dt>全部新聞</dt><dd>{selected.all_news_count}<small>篇</small></dd></div><div><dt>初步篩選</dt><dd>{selected.filtered_news_count}<small>篇</small></dd></div><div><dt>國會研究</dt><dd>{selected.parliament_count}<small>篇</small></dd></div></dl>
         <div className="detail-actions"><button className="primary" disabled={selected.status !== 'complete' && selected.status !== 'degraded'} onClick={() => onOpen(selected)}><FileXls />開啟 Excel</button><button disabled={running || !needsRetry(selected)} onClick={() => onRetry(selected)}><ArrowClockwise />重試異常來源</button></div>
         {onPreview && <button className="text-button preview-action" onClick={onPreview}><MagnifyingGlass />檢視本次新聞結果<ArrowSquareOut size={15} /></button>}
-        <section className="health-section"><div className="section-heading"><h3>來源健康狀態</h3><small>國會初步篩選 {selected.filtered_parliament_count} 篇</small></div><div className="health-table-wrap"><table aria-label="來源健康狀態"><thead><tr><th>來源</th><th>狀態</th><th>說明</th></tr></thead><tbody>{(showAllHealth ? health : health.slice(0, 5)).map(item => <tr key={item.source}><td>{item.source}</td><td><span className={`status ${!item.success ? 'failed' : item.warning ? 'attention' : 'healthy'}`}>{item.success && !item.warning ? <CheckCircle weight="fill" /> : <Warning weight="fill" />}{!item.success ? '失敗' : item.warning ? '需注意' : '正常'}</span></td><td>{item.warning || '順利取得資料'}<small>{item.item_count} 筆 · {item.duration_seconds.toFixed(1)} 秒</small></td></tr>)}</tbody></table></div>{health.length > 5 && <button className="text-button" onClick={onToggleHealth}>{showAllHealth ? '收合來源' : `查看全部 ${health.length} 個來源`}</button>}
+        <section className="health-section"><div className="section-heading"><h3>來源健康狀態</h3><small>國會初步篩選 {selected.filtered_parliament_count} 篇</small></div><div className="health-table-wrap"><table aria-label="來源健康狀態"><thead><tr><th>來源</th><th>狀態</th><th>說明</th></tr></thead><tbody>{(showAllHealth ? health : health.slice(0, 5)).map(item => <tr key={item.source}><td>{item.source}</td><td><span className={`status ${!item.success ? 'failed' : item.warning ? 'attention' : 'healthy'}`}>{item.success && !item.warning ? <CheckCircle weight="fill" /> : <Warning weight="fill" />}{healthAdvice(item).map(advice => advice.label).join('、')}</span></td><td>{item.warning || (item.item_count === 0 ? '本次查詢期間沒有取得文章' : '順利取得資料')}{healthAdvice(item).map(advice => <small key={advice.label}>{advice.action}</small>)}<small>{item.item_count} 筆 · {item.duration_seconds.toFixed(1)} 秒</small></td></tr>)}</tbody></table></div>{health.length > 5 && <button className="text-button" onClick={onToggleHealth}>{showAllHealth ? '收合來源' : `查看全部 ${health.length} 個來源`}</button>}
         {selected.warnings.length > 0 && <details className="run-warnings"><summary>執行提醒（{selected.warnings.length}）</summary><ul>{selected.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
         {selected.observability && <p className="observability">來源成功率 {Math.round(selected.observability.source_success_rate * 100)}% · 零筆來源 {Math.round(selected.observability.zero_item_ratio * 100)}%<small>零筆可能代表期間內未發布資料，不等同來源失敗。</small></p>}
         </section>
+        <section className="performance-section"><h3>執行耗時</h3>{selected.time_sync && <p>時間來源：{selected.time_sync.source === 'ntp' ? `國家標準時間 · ${selected.time_sync.server}` : selected.time_sync.source === 'system' ? '本機時間' : '未記錄校時資訊'}<small>{selected.time_sync.warning || (typeof selected.time_sync.offset_seconds === 'number' ? `校正差值 ${(selected.time_sync.offset_seconds * 1000).toFixed(2)} 毫秒` : '未記錄校正差值')}</small></p>}{performance ? <>
+          <p>{performance.run_kind === 'retry' ? '本次重試' : '本次完整執行'}：{durationText(performance.total_wall_seconds)}<small>計時至摘要寫入前；{performance.runtime} {performance.runtime_version} · {performance.workers} 個工作執行緒</small></p>
+          <dl>{Object.entries(stageLabels).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{durationText(performance.stages?.[key])}</dd></div>)}</dl>
+          <p>翻譯快取：命中 {performance.translation_cache_hits}，未命中 {performance.translation_cache_misses}</p>
+          <details><summary>請求與重試次數</summary><table aria-label="網路請求成本"><thead><tr><th>用途</th><th>請求</th><th>重試</th><th>限流回應</th></tr></thead><tbody>{Object.entries(performance.http ?? {}).map(([key, value]) => <tr key={key}><td>{{ list: '來源列表', search_api: '官方搜尋', fallback: '備援', translation: '翻譯' }[key] ?? key}</td><td>{value.attempted_count}</td><td>{value.retry_count}</td><td>{value.rate_limited_count}</td></tr>)}</tbody></table></details>
+          <small>各階段可能重疊，不能相加。比較速度前，請確認日期、來源、設定、版本、機器與快取條件一致，並分開完整執行、重試及降級結果。</small>
+        </> : <p>這份報表沒有可用的實測效能紀錄。</p>}</section>
       </aside>}
     </div>}
   </section>;

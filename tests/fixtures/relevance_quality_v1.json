@@ -1,0 +1,336 @@
+{
+  "schema_version": 1,
+  "provenance": "Historical labels from analysis/uk_filter_four_week_analysis_2026-09-14.ipynb, 2026-09-14; not newly reviewed.",
+  "limitations": "Selected and observed missed titles only; not a representative sample. Boundary labels excluded from binary metrics. Homepage removal occurs outside the relevance scorer.",
+  "cases": [
+    {
+      "id": "historical-001",
+      "title": "Notice: Trade remedies notices: boom lifts originating from China",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-002",
+      "title": "Official Statistics: Strategic export controls: licensing statistics 1 January to 31 March 2026",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-003",
+      "title": "Company Guidance | Secure Innovation",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-004",
+      "title": "Managing the cyber risk of agentic AI",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-005",
+      "title": "Lanarkshire AI Growth Zone secures £300 million investment as Dell establishes Scottish base",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-006",
+      "title": "Official Statistics: UK Public Survey of Risk Perception, Resilience and Preparedness: 2026",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-007",
+      "title": "Intellectual Property Office",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-008",
+      "title": "The impacts of screen and AI use on children and young people",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-009",
+      "title": "Guidance: AI Research Resource",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-010",
+      "title": "Official Statistics: Strategic export controls: licensing statistics: 1 January to 31 March 2026",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-011",
+      "title": "Strategic export controls: licensing statistics",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-012",
+      "title": "Guidance: Advisory AI Growth Lab: legal services",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-013",
+      "title": "Guidance: Advanced manufacturing expert evaluation panel: expression of interest",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-014",
+      "title": "Expression of interest: NPSA part-funded vehicle impact testing against electric vehicles (EVs)",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-015",
+      "title": "Disruptive cyber activity highlights risk from internet-exposed systems and edge devices",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-016",
+      "title": "Our approach to online safety supervision and compliance",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-017",
+      "title": "What impact does AI have on children's learning in schools?",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-018",
+      "title": "Research: Semiconductor sector study 2026",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-019",
+      "title": "Notice: G20 Innovation Ministerial Statement: 2 September 2026",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-020",
+      "title": "C-UAS CSE results",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-021",
+      "title": "Using GOV.UK Wallet in the digital identity sector",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-022",
+      "title": "GOV.UK One Login app: accessibility statement",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-023",
+      "title": "Government technology standards and guidance",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-024",
+      "title": "£100 million competition to back British AI companies to fix public services",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-025",
+      "title": "Defence readiness, civil preparedness and national resilience",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-026",
+      "title": "Home defence: A new ‘Home Guard’?",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-027",
+      "title": "What is NATO's Article 3 commitment to national resilience?",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-028",
+      "title": "Department for Business, Innovation, Science and Trade (BIST) sponsorship",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-029",
+      "title": "Department for Business, Innovation, Science and Trade",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-030",
+      "title": "Notice: Trade remedies notices: certain glass containers originating from China",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-031",
+      "title": "Cat Little Appointed as New Permanent Secretary, Department for Business, Innovation, Science and Trade",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-032",
+      "title": "Official Statistics: Strategic export controls: licensing statistics: 1 April to 30 June 2026",
+      "summary": "",
+      "label": "boundary",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-033",
+      "title": "The hidden risks of shadow AI",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-034",
+      "title": "DCMS Chief Scientific Adviser Office",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-035",
+      "title": "Supply chains for low carbon electricity infrastructure",
+      "summary": "",
+      "label": "unrelated",
+      "basis": "historical notebook QUALITY; title-only; labels require periodic review",
+      "baseline_included": false
+    },
+    {
+      "id": "historical-036",
+      "title": "Proposed steering conduct requirement for Apple's mobile platform",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook MISSES; CMA; 數位平台競爭; title-only",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-037",
+      "title": "Digital sovereignty",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook MISSES; POST; 資料主權; title-only",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-038",
+      "title": "Digital ID in the UK",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook MISSES; House of Commons; 數位身份; title-only",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-039",
+      "title": "Ofcom to crack down on spread of illegal intimate images and deepfakes, boosting protections for women and girls online",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook MISSES; Ofcom; 平台責任／網路安全; title-only",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-040",
+      "title": "Proposals to ban social media for children",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook MISSES; House of Commons; 平台責任／兒少安全; title-only",
+      "baseline_included": true
+    },
+    {
+      "id": "historical-041",
+      "title": "Media green paper",
+      "summary": "",
+      "label": "related",
+      "basis": "historical notebook MISSES; House of Commons; 媒體多元; title-only",
+      "baseline_included": true
+    }
+  ],
+  "baseline_version": "v2.3.6 relevance scorer, automatically evaluated; these flags are not human labels"
+}

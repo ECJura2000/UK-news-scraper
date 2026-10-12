@@ -7,7 +7,7 @@ button.primary { background: var(--teal); color: white; border-color: var(--teal
 :focus-visible { outline: 3px solid #0c91a2; outline-offset: 3px; } h1, h2, h3, p { margin: 0; } h1 { font-size: 46px; line-height: 1.25; letter-spacing: .04em; } h2 { font-size: 25px; line-height: 1.4; } h3 { font-size: 22px; } small { font-size: 14px; color: var(--muted); }
 .app-header { height: 72px; background: var(--navy); color: white; display: flex; justify-content: space-between; align-items: center; padding: 0 30px; gap: 20px; }
 .brand { display: flex; align-items: center; gap: 15px; font-size: 25px; white-space: nowrap; } .brand-subtitle { font-size: 18px; border-left: 1px solid #90a7b9; padding-left: 20px; margin-left: 5px; }
-.brand-mark { width: 27px; height: 48px; object-fit: contain; }
+.brand-mark { width: 40px; height: 64px; object-fit: contain; flex-shrink: 0; }
 .header-tools { display: flex; align-items: center; gap: 12px; } .header-tools time { font-size: 14px; } .icon-button { padding: 8px; border: 0; } .header-tools button { color: white; } .header-tools button:hover:not(:disabled) { background: #284860; }
 .app-body { display: grid; grid-template-columns: 198px minmax(0, 1fr); min-height: calc(100vh - 72px); } .sidebar { display: flex; flex-direction: column; padding: 22px 7px; border-right: 1px solid var(--line); }
 .sidebar button { width: 100%; justify-content: flex-start; border: 0; gap: 15px; font-size: 19px; padding: 13px 18px; min-height: 50px; border-left: 3px solid transparent; border-radius: 0 5px 5px 0; } .sidebar button.active { border-left-color: var(--teal); background: #e0eeed; font-weight: bold; }

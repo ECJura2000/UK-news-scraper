@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -25,6 +26,7 @@ from .profiles import FilterProfile, load_profile
 from .runtime_lock import LockUnavailable
 from .scrapers.ministry.status import FetchAllResult
 from .scrapers.parliament import ParliamentFetchResult
+from .standard_time import now_utc, status_payload, synchronize
 
 LOCAL_TIMEZONE = ZoneInfo(DEFAULT_TIMEZONE)
 
@@ -82,11 +84,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="驗證封裝所需模組與 scraper registry，不執行網路抓取。",
     )
+    parser.add_argument("--check-time", action="store_true", help="連接國家標準時間 NTP，顯示程式校時結果。")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.check_time:
+        synchronize(force=True)
+        print(json.dumps(status_payload(), ensure_ascii=False, indent=2))
+        if status_payload()["source"] != "ntp":
+            raise SystemExit(1)
+        return
     if args.ui:
         from .ui import launch
 
@@ -95,7 +104,8 @@ def main() -> None:
     if args.check_runtime:
         _check_runtime()
         return
-    now = datetime.now(UTC)
+    synchronize()
+    now = now_utc()
     since, until = _resolve_date_range(args, now)
     period_start = _local_date(since)
     period_end = _local_date(until - timedelta(microseconds=1))

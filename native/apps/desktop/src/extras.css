@@ -34,3 +34,10 @@ th { position: sticky; top: 0; background: #eef6f8; }
 .health-overview small { display: block; margin-top: 5px; color: #8b4d12; }
 .health-list article { display: grid; gap: 3px; padding: 10px; border: 1px solid #dbe5ea; border-radius: 8px; background: #fafcfd; }
 .health-list small { color: #8b4d12; }
+
+.performance-section { margin-top: 24px; border-top: 1px solid var(--border, #ddd); padding-top: 16px; }
+.performance-section h3 { font-size: 16px; }
+.performance-section small { display: block; line-height: 1.6; color: #536274; }
+.performance-section dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.performance-section dd { margin: 0; }
+.performance-section table { width: 100%; text-align: left; font-size: 12px; }

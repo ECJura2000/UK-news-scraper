@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
 use fs2::FileExt;
 use serde_json::{json, Map, Value};
 use std::{
@@ -91,7 +90,7 @@ pub fn claim(summary: &Path, registry: Option<&Path>) -> Result<Value> {
             return Ok(json!({"claimed":false,"delivery_id":id,"existing":existing}));
         }
     }
-    map.insert(id.into(),json!({"state":"claimed","run_id":run,"status":s["status"],"data_fingerprint":s["data_fingerprint"],"claimed_at":Utc::now().to_rfc3339(),"excel_path":s["output_file"],"message_id":"","sent_at":""}));
+    map.insert(id.into(),json!({"state":"claimed","run_id":run,"status":s["status"],"data_fingerprint":s["data_fingerprint"],"claimed_at":uk_news_core::standard_time::now_utc().to_rfc3339(),"excel_path":s["output_file"],"message_id":"","sent_at":""}));
     write(&path, &map)?;
     Ok(json!({"claimed":true,"delivery_id":id}))
 }
@@ -108,7 +107,10 @@ pub fn complete(id: &str, message: &str, registry: Option<&Path>) -> Result<Valu
     }
     item.insert("state".into(), json!("sent"));
     item.insert("message_id".into(), json!(message));
-    item.insert("sent_at".into(), json!(Utc::now().to_rfc3339()));
+    item.insert(
+        "sent_at".into(),
+        json!(uk_news_core::standard_time::now_utc().to_rfc3339()),
+    );
     let result = Value::Object(item.clone());
     write(&path, &map)?;
     Ok(result)

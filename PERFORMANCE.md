@@ -106,3 +106,11 @@ complete runs separate from degraded runs; compare source-health results and
 logical record identities alongside elapsed time. Replay saved responses for
 quality comparisons when upstream content can change. Do not claim a 20% speedup
 from a single run, a smaller output, or synthetic concurrency benchmarks.
+
+### Baseline tooling and desktop display
+
+The report library displays measured stages, translation-cache counts and HTTP
+costs without summing overlapping work. `scripts.performance_baseline` records
+explicit execution context and groups matching summaries; three distinct complete
+full runs are required for `baseline_ready`. Missing measurements remain unknown.
+See [品質與效能診斷](docs/QUALITY_DIAGNOSTICS.md) for commands and comparison limits.

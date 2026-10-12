@@ -4,7 +4,6 @@ import hashlib
 from collections import deque
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from threading import Condition, Lock, local
 from time import monotonic, sleep
@@ -19,6 +18,7 @@ from ..config import DEFAULT_RETRY_TOTAL, DEFAULT_TIMEOUT_SECONDS, USER_AGENT
 from ..errors import DownloadError, ParseError
 from ..models import EndpointObservation
 from ..performance import http_attempt, http_status, route_category
+from ..standard_time import now_utc
 
 _THREAD_LOCAL = local()
 _HOST_LOCK = Lock()
@@ -106,7 +106,7 @@ def _retry_after(response: requests.Response) -> float:
     if raw.isdecimal():
         return float(raw)
     try:
-        return max(0.0, (parsedate_to_datetime(raw) - datetime.now(UTC)).total_seconds())
+        return max(0.0, (parsedate_to_datetime(raw) - now_utc()).total_seconds())
     except (TypeError, ValueError, OverflowError):
         return 1.0
 
@@ -157,7 +157,7 @@ def _observe(url: str, response: requests.Response | None) -> None:
         EndpointObservation(
             url=endpoint,
             status_code=response.status_code if response is not None else 0,
-            fetched_at=datetime.now(UTC).isoformat(),
+            fetched_at=now_utc().isoformat(),
             response_sha256=hashlib.sha256(body).hexdigest() if response is not None else "",
             etag=response.headers.get("ETag", "") if response is not None else "",
             last_modified=response.headers.get("Last-Modified", "") if response is not None else "",

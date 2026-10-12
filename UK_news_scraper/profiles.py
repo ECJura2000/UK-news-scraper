@@ -7,12 +7,12 @@ import re
 import shutil
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from .config import AGENCIES, TOPIC_RULES
+from .standard_time import now_utc
 
 PROFILE_SCHEMA_VERSION = 1
 DEFAULT_PROFILE_ID = "uk-tech-law"
@@ -386,7 +386,7 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _quarantine_invalid_file(path: Path) -> Path | None:
     if not path.exists():
         return None
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = now_utc().strftime("%Y%m%dT%H%M%SZ")
     recovery = path.with_name(f"{path.stem}.corrupt-{timestamp}{path.suffix}")
     try:
         path.replace(recovery)

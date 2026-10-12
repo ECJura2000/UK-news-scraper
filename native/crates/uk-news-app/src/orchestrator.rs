@@ -92,6 +92,11 @@ async fn execute_with_progress_measured(
     progress: Option<ProgressCallback>,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
     let run_started = Instant::now();
+    let sync =
+        tokio::task::spawn_blocking(|| uk_news_core::standard_time::synchronize(false)).await?;
+    if !sync.warning.is_empty() {
+        eprintln!("[warn] {}", sync.warning);
+    }
     options.output = absolute_output(&options.output)?;
     let (since, until) = utc_range(options.since, options.until);
     let selected = options.profile.selected_sources.clone();
@@ -186,6 +191,11 @@ async fn retry_failed_sources_with_progress_measured(
     progress: Option<ProgressCallback>,
 ) -> Result<(PathBuf, PathBuf, RunSummary)> {
     let run_started = Instant::now();
+    let sync =
+        tokio::task::spawn_blocking(|| uk_news_core::standard_time::synchronize(false)).await?;
+    if !sync.warning.is_empty() {
+        eprintln!("[warn] {}", sync.warning);
+    }
     options.output = absolute_output(&options.output)?;
     let previous: RunSummary = serde_json::from_str(
         &fs::read_to_string(previous_summary_path)
@@ -459,7 +469,7 @@ async fn finalize(
     };
     let fingerprint = make_data_fingerprint(&agencies.items, &parliament.items);
     let run_id = run_id_for(options.since, options.until, &options.profile.profile_id);
-    let generated_at = Utc::now().to_rfc3339();
+    let generated_at = uk_news_core::standard_time::now_utc().to_rfc3339();
     let observability = summarize_source_health(&health);
     let record_provenance =
         record_provenance(&agencies.items, &parliament.items, &generated_at, &health);
@@ -492,6 +502,7 @@ async fn finalize(
         observability,
         record_provenance,
         performance: Default::default(),
+        time_sync: uk_news_core::standard_time::status(),
     };
     let summary_path = options.output.with_extension("run.json");
     let json_timer = Timer::new("json_write_seconds");

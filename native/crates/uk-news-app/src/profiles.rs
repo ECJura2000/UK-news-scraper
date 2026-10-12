@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -471,7 +470,7 @@ fn quarantine(path: &Path) -> Result<Option<PathBuf>> {
     if !path.exists() {
         return Ok(None);
     }
-    let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
+    let stamp = uk_news_core::standard_time::now_utc().format("%Y%m%dT%H%M%SZ");
     let recovery = path.with_file_name(format!(
         "{}.corrupt-{stamp}.json",
         path.file_stem()
@@ -671,5 +670,45 @@ mod tests {
         validate_profile(&profile).unwrap();
         assert_eq!(profile.profile_id, "uk-public-sector-ai-example");
         assert_eq!(profile.topics.len(), 2);
+    }
+    #[test]
+    fn historical_quality_corpus_prevents_new_misses_and_false_positives() {
+        let dataset: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/relevance_quality_v1.json"
+        ))
+        .unwrap();
+        let profile = default_profile();
+        let mut false_positives = 0;
+        let mut false_negatives = 0;
+        let mut boundaries = 0;
+        for case in dataset["cases"].as_array().unwrap() {
+            let title = case["title"].as_str().unwrap();
+            let mut item = candidate(title, case["summary"].as_str().unwrap_or(""));
+            let included = assess_news(&mut item, &profile);
+            let baseline = case["baseline_included"].as_bool().unwrap();
+            match case["label"].as_str().unwrap() {
+                "related" => {
+                    if baseline {
+                        assert!(included, "new missed title: {title}");
+                    }
+                    if !included {
+                        false_negatives += 1;
+                    }
+                }
+                "unrelated" => {
+                    if !baseline {
+                        assert!(!included, "new false positive: {title}");
+                    }
+                    if included {
+                        false_positives += 1;
+                    }
+                }
+                "boundary" => boundaries += 1,
+                other => panic!("unknown label: {other}"),
+            }
+        }
+        assert_eq!(boundaries, 10);
+        assert!(false_positives <= 1);
+        assert!(false_negatives <= 3);
     }
 }

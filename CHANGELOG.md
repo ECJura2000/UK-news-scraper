@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.7 - 2026-10-12
+
+- Calibrate application time against the five National Standard Time NTP servers over UDP 123, with bounded queries, validated responses, a monotonic anchor, and explicit system-clock fallback. Preserve original article dates and monotonic fetch/performance deadlines.
+- Use calibrated time for default Taipei calendar dates, report/endpoint timestamps and source freshness. Record compatible `time_sync` diagnostics outside fingerprint v3 and delivery IDs; add `--check-time` to Python and Rust. Python fallback package version is 1.2.6.
+- Label the header date as national standard time after successful calibration, retain honest pending/fallback labels, and update it across midnight without overwriting manually selected dates.
+- Replace the desktop application icon with the navy-and-white clock tower using the existing high-resolution original and multi-size assets, including a 1024-pixel macOS icon.
+- Validate daily source checks with production parsers and preserve evidence; add a fixed historical relevance corpus shared by Python/Rust, conservative quality-regression gates, comparable performance-baseline tooling, stage/network-cost display and actionable source-health advice. Do not claim general precision/recall or a speedup from these diagnostics.
+
 ## 2.3.6 - 2026-10-10
 
 - Redesign the native desktop UI around a weekly report library, with separate query and topic-setting pages, source health, Excel access, and failed-source retry.

@@ -67,6 +67,9 @@ class EditableTopic(TypedDict):
 
 
 def launch() -> None:
+    from .standard_time import synchronize
+
+    synchronize()
     enable_high_dpi()
     app = UKNewsApp()
     app.mainloop()

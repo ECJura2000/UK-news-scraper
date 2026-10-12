@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import tkinter as tk
-from datetime import date, timedelta
+from datetime import timedelta
 from functools import partial
 from tkinter import ttk
 from typing import TYPE_CHECKING
 
 from .config import AGENCIES, DEFAULT_MAX_WORKERS, DEFAULT_OUTPUT_DIR
 from .profiles import PARLIAMENT_SOURCE_ID
+from .standard_time import today_taipei
 from .ui_components import COLORS, DateSelector, configure_relevance_tags, english_font_family, font_family
 
 if TYPE_CHECKING:
@@ -117,7 +118,7 @@ def _build_run_page(self: UKNewsApp) -> None:
     calendar_box.grid(row=1, column=1, sticky="w", padx=(18, 20), pady=8)
     calendar_box.bind("<<ComboboxSelected>>", self._calendar_changed)
 
-    today = date.today()
+    today = today_taipei()
     ttk.Label(card, text="開始日", style="Surface.TLabel").grid(row=2, column=0, sticky="w", pady=8)
     self.start_selector = DateSelector(card, today - timedelta(days=14))
     self.start_selector.grid(row=2, column=1, sticky="w", padx=(18, 28), pady=8)
@@ -414,7 +415,7 @@ def _build_results_page(self: UKNewsApp) -> None:
         variable=self.result_date_enabled_var,
         command=self._refresh_results,
     ).pack(side="left", padx=(14, 6))
-    today = date.today()
+    today = today_taipei()
     self.result_start_selector = DateSelector(
         filters_bottom,
         today - timedelta(days=14),

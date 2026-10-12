@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import datetime
 from time import monotonic, sleep
 
 from ...article_links import is_agency_homepage
@@ -8,6 +8,7 @@ from ...errors import UKNewsError, is_retryable_error
 from ...http.async_client import request_deadline, trace_requests
 from ...models import Agency, EndpointObservation, NewsItem
 from ...performance import submit
+from ...standard_time import now_utc
 from .registry import AgencyFeedScraper, build_scrapers
 from .status import AgencyFetchStatus, FetchAllResult, health_warning, newest_published_at
 from .utils.dedupe import dedupe_items
@@ -142,7 +143,7 @@ def _success_status(
         newest_published_at=newest_published_at(items),
         warning="；".join(warnings),
         candidate_count=getattr(scraper, "candidate_count", 0),
-        fetched_at=endpoints[-1].fetched_at if endpoints else datetime.now(UTC).isoformat(),
+        fetched_at=endpoints[-1].fetched_at if endpoints else now_utc().isoformat(),
         endpoints=endpoints,
     )
 
@@ -162,6 +163,6 @@ def _failed_status(
         error=error,
         duration_seconds=duration,
         candidate_count=getattr(scraper, "candidate_count", 0),
-        fetched_at=endpoints[-1].fetched_at if endpoints else datetime.now(UTC).isoformat(),
+        fetched_at=endpoints[-1].fetched_at if endpoints else now_utc().isoformat(),
         endpoints=endpoints,
     )

@@ -7,6 +7,7 @@ const history = [summary('2026-10-10', '2026-09-26', 'degraded', 116), summary('
 let generation = 0;
 
 export async function previewCommand(command: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  if (command === 'current_time') return { source: 'system', utc: new Date().toISOString(), warning: '設計預覽不連接 NTP' };
   if (command === 'source_catalog') return profiles[0].selected_sources.filter(id => id !== 'UK Parliament').map(id => ({ id, name_zh: ({ ICO: '英國資訊專員辦公室', Ofcom: '英國通訊管理局', NCSC: '國家網路安全中心' } as Record<string, string>)[id], name_en: id, jurisdiction: 'UK', kind: '官方機關', homepage: 'https://www.gov.uk/', status: 'searchable', reason: '' }));
   if (command === 'profile_load_report') return { profiles, warning: '', recovery_path: null };
   if (command === 'list_profiles') return profiles;

@@ -315,3 +315,7 @@ python3 -m UK_news_scraper.delivery_registry recover --delivery-id <delivery_id>
 ## 授權
 
 本專案程式碼使用 [MIT License](LICENSE)。抓取的新聞、國會研究資料、翻譯結果與第三方備援結果仍受各原始提供者的使用條款約束，詳見 [NOTICE](NOTICE.md)。
+
+## 手機手動雲端執行
+
+使用 GitHub Actions 手動抓取，Excel 與 JSON 存入 Google Drive，並保留 30 天 Artifacts。首次設定與手機操作見 [手機雲端執行指南](docs/MOBILE_CLOUD_RUN.md)。

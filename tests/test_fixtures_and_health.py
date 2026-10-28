@@ -37,6 +37,35 @@ def test_electoral_commission_fixture_parser():
     assert items[0].link == "https://www.electoralcommission.org.uk/news/sample"
 
 
+def test_reviewed_guidance_does_not_imply_missing_recent_publication():
+    from UK_news_scraper.scrapers.ministry.registry import _page_has_in_range_date
+
+    soup = BeautifulSoup(
+        '<main><h1>Recovery guidance</h1><div><h4>Published</h4>'
+        '<time datetime="2026-07-28">28 July</time></div><div><h4>Reviewed</h4>'
+        '<time datetime="2026-10-27">27 October</time></div></main>', "html.parser"
+    )
+    assert not _page_has_in_range_date(soup, datetime(2026, 10, 13, tzinfo=UTC), None)
+    assert _page_has_in_range_date(soup, datetime(2026, 7, 1, tzinfo=UTC), None)
+    recent = BeautifulSoup('<time datetime="2026-10-27">27 October</time>', "html.parser")
+    assert _page_has_in_range_date(recent, datetime(2026, 10, 13, tzinfo=UTC), None)
+
+
+def test_homepage_excluded_link_does_not_imply_parser_loss(monkeypatch):
+    agency = Agency("數位服務", "Digital Service", "TEST", "https://official.example/",
+                    official_pages=("https://official.example/",), link_include_patterns=("/news/",))
+    monkeypatch.setattr("UK_news_scraper.scrapers.ministry.registry.get_text", lambda _: (
+        '<li><a href="/transparency/record">Transparency record</a>'
+        '<time datetime="2026-10-27">27 October</time></li>'
+    ))
+    scraper = AgencyFeedScraper(agency)
+    items, _, successes = scraper._fetch_official_pages(datetime(2026, 10, 13, tzinfo=UTC))
+    assert successes == 1
+    assert items == []
+    assert scraper.source_warnings == []
+    assert scraper.candidate_count == 0
+
+
 def test_official_page_parser_captures_ncsc_guidance_page():
     agency = Agency(
         "國家網路安全中心",

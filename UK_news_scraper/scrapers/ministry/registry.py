@@ -405,7 +405,9 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                 continue
             successful_sources += 1
             date_scope = (
-                soup.select("article, li, .search-result, .card")
+                [node for node in soup.select("article, li, .search-result, .card")
+                 if any(self._is_official_link(link := urljoin(page_url, _attr_text(anchor, "href")), page_url)
+                        and self._is_allowed_link(link) for anchor in node.select("a[href]"))]
                 if is_agency_homepage(page_url, self.agency.homepage)
                 else [soup]
             )
@@ -710,6 +712,14 @@ def _page_has_in_range_date(soup: Tag, since: datetime, until: datetime | None) 
     start_date = since.astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date()
     end_date = until.astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date() if until else None
     for node in soup.select("time[datetime], meta[property='article:published_time'], meta[name='datePublished']"):
+        # Review dates on NCSC guidance are not publication candidates. The
+        # article parser uses the original Published date, so a recent review
+        # alone must not imply that an in-period article was lost.
+        label = node.find_previous_sibling(["h3", "h4", "dt", "span"])
+        if label is not None and clean_text(label.get_text(" ", strip=True)).casefold() in {
+            "reviewed", "last reviewed", "last updated", "updated"
+        }:
+            continue
         value = _attr_text(node, "datetime") or _attr_text(node, "content")
         published = parse_datetime_text(value)
         if published and published.date() >= start_date and (end_date is None or published.date() < end_date):

@@ -260,7 +260,8 @@ RSS 會逐頁抓取，直到資料日期早於本次搜尋起始日，避免只�
 最新 10 筆而漏掉同期間內的其他 research briefings。
 此外會抓取 House of Lords Library 的 `Science & Technology` 主題頁，
 以及 House of Commons Library 的 `Technology`、`Sciences` 主題頁，
-補入 RSS 未收錄的 `In Focus` 與其他相關文章。
+補入 RSS 未收錄的 `In Focus` 與其他相關文章。主題頁受阻時會改讀同主題的官方 RSS，
+並在來源健康紀錄保留原頁面失敗警告。
 `Research Briefings API` 目前可透過環境變數 `UK_PARLIAMENT_TRY_API=1`
 手動啟用健康檢查：
 

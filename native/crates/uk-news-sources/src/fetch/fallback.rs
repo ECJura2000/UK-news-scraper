@@ -18,6 +18,7 @@ pub(super) async fn google_news_fallback(
         ],
         "NPSA" => &["site:npsa.gov.uk NPSA"],
         "Electoral Commission" => &["site:electoralcommission.org.uk Electoral Commission"],
+        "ICO" => &["site:ico.org.uk ICO"],
         _ => &[],
     };
     let mut items = vec![];
@@ -25,6 +26,7 @@ pub(super) async fn google_news_fallback(
     let npsa_suffix =
         Regex::new(r"(?i)\s+-\s+National Protective Security Authority(?:\s+\|\s+NPSA)?$").unwrap();
     let electoral_suffix = Regex::new(r"(?i)\s+-\s+Electoral Commission$").unwrap();
+    let ico_suffix = Regex::new(r"(?i)\s+-\s+ICO$").unwrap();
     for query in queries {
         let encoded = query
             .as_bytes()
@@ -47,6 +49,7 @@ pub(super) async fn google_news_fallback(
         let expected_host = match agency.short_name.as_str() {
             "Ofcom" => "ofcom.org.uk",
             "NPSA" => "npsa.gov.uk",
+            "ICO" => "ico.org.uk",
             _ => "electoralcommission.org.uk",
         };
         for entry in feed.entries {
@@ -73,6 +76,8 @@ pub(super) async fn google_news_fallback(
                 title = ofcom_suffix.replace(&title, "").trim().into();
             } else if agency.short_name == "NPSA" {
                 title = npsa_suffix.replace(&title, "").trim().into();
+            } else if agency.short_name == "ICO" {
+                title = ico_suffix.replace(&title, "").trim().into();
             } else {
                 title = electoral_suffix.replace(&title, "").trim().into();
                 let normalized = title.to_lowercase();

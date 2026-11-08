@@ -180,6 +180,7 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
             "Ofcom",
             "NPSA",
             "Electoral Commission",
+            "ICO",
         ):
             attempted_sources += 1
             try:
@@ -528,6 +529,8 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
             return ("site:npsa.gov.uk NPSA",)
         if self.agency.short_name == "Electoral Commission":
             return ("site:electoralcommission.org.uk Electoral Commission",)
+        if self.agency.short_name == "ICO":
+            return ("site:ico.org.uk ICO",)
         return ()
 
     def _fetch_google_news_query(self, query_text: str, since: datetime) -> list[NewsItem]:
@@ -546,6 +549,7 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                 "Ofcom": "ofcom.org.uk",
                 "NPSA": "npsa.gov.uk",
                 "Electoral Commission": "electoralcommission.org.uk",
+                "ICO": "ico.org.uk",
             }[self.agency.short_name]
             publisher_url = getattr(entry, "source", {}).get("href", "")
             if (
@@ -579,6 +583,8 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
                 ).strip()
                 if not _is_electoral_commission_google_news_title(title):
                     continue
+            elif self.agency.short_name == "ICO":
+                title = re.sub(r"\s+-\s+ICO$", "", title, flags=re.IGNORECASE).strip()
             if len(title) < 12:
                 continue
             items.append(

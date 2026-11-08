@@ -109,7 +109,32 @@ def test_topic_archive_failure_isolated_from_successful_api(monkeypatch):
         return []
 
     monkeypatch.setattr(parliament, "_fetch_topic_archive", archive)
+    monkeypatch.setattr(
+        parliament, "_fetch_rss", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("feed offline"))
+    )
     result = parliament.fetch_parliament_briefings(SINCE)
     assert result.items[0].identifier == "CBP-1234"
     assert any("topic archive" in source for source in result.failed_sources)
     assert result.all_successful
+
+
+def test_blocked_topic_archive_uses_official_topic_feed(monkeypatch):
+    monkeypatch.setenv("UK_PARLIAMENT_TRY_API", "1")
+    monkeypatch.setattr(parliament, "_fetch_api", lambda *_args, **_kwargs: [_briefing()])
+    monkeypatch.setattr(
+        parliament, "_fetch_topic_archive", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("blocked"))
+    )
+    feeds = []
+
+    def topic_feed(publisher, url, _since, **kwargs):
+        feeds.append(url)
+        assert kwargs["document_type"] == "Topic publication"
+        return [_briefing(publisher)]
+
+    monkeypatch.setattr(parliament, "_fetch_rss", topic_feed)
+    result = parliament.fetch_parliament_briefings(SINCE)
+    assert len(feeds) == len(parliament.TOPIC_ARCHIVE_SOURCES)
+    assert all(url.endswith("/feed/") for url in feeds)
+    assert not result.failed_sources
+    assert all(health.success for health in result.source_health)
+    assert any("改用官方主題 RSS" in warning for warning in result.warnings)

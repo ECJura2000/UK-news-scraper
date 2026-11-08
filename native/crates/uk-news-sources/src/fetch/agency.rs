@@ -209,7 +209,7 @@ pub async fn fetch_agencies_with_progress(
                 if items.is_empty()
                     && matches!(
                         agency.short_name.as_str(),
-                        "Ofcom" | "NPSA" | "Electoral Commission"
+                        "Ofcom" | "NPSA" | "Electoral Commission" | "ICO"
                     )
                 {
                     match google_news_fallback(&transport, &agency, since, until, &mut observations)

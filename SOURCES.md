@@ -18,7 +18,7 @@ v2.3.4 的快照；使用者須在桌面介面選取來源並儲存主題設定�
 | BIST | Department for Business, Innovation, Science and Trade | [GOV.UK](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade) | [Atom](https://www.gov.uk/government/organisations/department-for-business-innovation-science-and-trade.atom) |
 | DCMS | Department for Digital, Culture, Media and Sport | [GOV.UK current department page](https://www.gov.uk/government/organisations/department-for-culture-media-and-sport) | [Atom](https://www.gov.uk/government/organisations/department-for-culture-media-and-sport.atom) |
 | AISI | AI Security Institute | [GOV.UK](https://www.gov.uk/government/organisations/ai-safety-institute) | [Atom](https://www.gov.uk/government/organisations/ai-safety-institute.atom) |
-| ICO | Information Commissioner's Office | [News and blogs](https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/) | 網站自動發現或 HTML |
+| ICO | Information Commissioner's Office | [News and blogs](https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/) | 網站自動發現或 HTML；官方頁受阻時使用經發布者網域核對的 Google News RSS 備援，並標示日期未核對 |
 | CMA | Competition and Markets Authority | [GOV.UK](https://www.gov.uk/government/organisations/competition-and-markets-authority) | [Atom](https://www.gov.uk/government/organisations/competition-and-markets-authority.atom) |
 | UK IPO | UK Intellectual Property Office | [GOV.UK](https://www.gov.uk/government/organisations/intellectual-property-office) | [Atom](https://www.gov.uk/government/organisations/intellectual-property-office.atom) |
 | GDS | Government Digital Service | [GOV.UK](https://www.gov.uk/government/organisations/government-digital-service) | [Atom](https://www.gov.uk/government/organisations/government-digital-service.atom) |

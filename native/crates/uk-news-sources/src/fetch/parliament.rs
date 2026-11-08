@@ -360,6 +360,7 @@ pub async fn fetch_parliament(
         let started = Instant::now();
         let mut source_items = vec![];
         let mut warning = String::new();
+        let mut success = false;
         let mut observations = vec![];
         match transport.bytes(transport.get(url), &mut observations).await {
             Ok(bytes) => {
@@ -370,12 +371,29 @@ pub async fn fetch_parliament(
                     chamber,
                     since,
                     until,
-                )
+                );
+                success = true;
             }
-            Err(e) => warning = format!("{label} 主題頁讀取失敗：{e}"),
+            Err(e) => {
+                let archive_warning = format!("{label} 主題頁讀取失敗：{e}");
+                let feed_url = format!("{url}feed/");
+                match fetch_topic_feed(
+                    &transport, &feed_url, publisher, chamber, since, until, &mut observations,
+                )
+                .await
+                {
+                    Ok(feed_items) => {
+                        source_items = feed_items;
+                        success = true;
+                        warning = format!("{archive_warning}；改用官方主題 RSS");
+                    }
+                    Err(feed_error) => {
+                        warning = format!("{archive_warning}；官方主題 RSS 讀取失敗：{feed_error}");
+                    }
+                }
+            }
         };
-        let success = warning.is_empty();
-        if !success {
+        if !warning.is_empty() {
             warnings.push(warning.clone())
         }
         let newest = source_items
@@ -404,6 +422,77 @@ pub async fn fetch_parliament(
         health,
         warnings,
     }
+}
+
+async fn fetch_topic_feed(
+    transport: &Transport,
+    feed_url: &str,
+    publisher: &str,
+    chamber: &str,
+    since: DateTime<Utc>,
+    until: DateTime<Utc>,
+    observations: &mut Vec<EndpointObservation>,
+) -> Result<Vec<ParliamentBriefing>, String> {
+    let mut items = vec![];
+    for page in 1..=20 {
+        let page_url = if page == 1 {
+            feed_url.to_string()
+        } else {
+            format!("{feed_url}?paged={page}")
+        };
+        let bytes = transport.bytes(transport.get(&page_url), observations).await?;
+        let feed = parser::parse(&bytes[..]).map_err(|error| error.to_string())?;
+        let entry_count = feed.entries.len();
+        let mut oldest = None;
+        for entry in feed.entries {
+            let Some(published) = entry.published.or(entry.updated) else {
+                continue;
+            };
+            oldest = Some(oldest.map_or(published, |date: DateTime<Utc>| date.min(published)));
+            if published < since || published >= until {
+                continue;
+            }
+            let title = entry.title.map(|value| crate::parse::clean_text(&value.content)).unwrap_or_default();
+            let webpage_url = entry.links.first().map(|value| value.href.clone()).unwrap_or_default();
+            if title.is_empty() || webpage_url.is_empty() {
+                continue;
+            }
+            let host = url::Url::parse(&webpage_url).ok().and_then(|url| url.host_str().map(str::to_owned));
+            if !host.as_deref().is_some_and(|host| host == "parliament.uk" || host.ends_with(".parliament.uk")) {
+                continue;
+            }
+            let summary = entry.summary.map(|value| strip_html(&value.content)).unwrap_or_default();
+            let content = entry.content.as_ref().and_then(|value| value.body.as_deref()).unwrap_or_default();
+            let combined = format!("{title} {webpage_url} {summary}");
+            let id = identifier(&combined);
+            items.push(ParliamentBriefing {
+                published_at: published,
+                chamber: chamber.into(),
+                publisher: publisher.into(),
+                title,
+                summary,
+                identifier: id.clone(),
+                webpage_url,
+                pdf_url: pdf_url(content, &id),
+                topics: entry.categories.into_iter().map(|category| category.term).collect(),
+                document_type: "Topic publication".into(),
+                fetched_from: format!("Official RSS: {feed_url}"),
+                matched_topics: vec![],
+                matched_keywords: vec![],
+                title_matched_keywords: vec![],
+                summary_matched_keywords: vec![],
+                core_matched_keywords: vec![],
+                general_matched_keywords: vec![],
+                supporting_matched_keywords: vec![],
+                relevance_score: 0,
+                relevance_level: String::new(),
+            });
+        }
+        if entry_count < 10 || oldest.is_some_and(|date| date < since) {
+            break;
+        }
+    }
+    Ok(dedupe_parliament(items))
 }
 
 fn strip_html(text: &str) -> String {

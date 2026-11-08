@@ -243,7 +243,7 @@ def _extend_with_topic_archives(
             )
             for label, archive_url, chamber, publisher in TOPIC_ARCHIVE_SOURCES
         }
-        for label, _, _, _ in TOPIC_ARCHIVE_SOURCES:
+        for label, archive_url, _, publisher in TOPIC_ARCHIVE_SOURCES:
             future, started_at = futures[label]
             endpoints: tuple[EndpointObservation, ...] = ()
             try:
@@ -251,23 +251,29 @@ def _extend_with_topic_archives(
                 if error is not None:
                     raise error
             except Exception as exc:
-                warning = f"{label} 主題頁讀取失敗：{exc}"
+                archive_warning = f"{label} 主題頁讀取失敗：{exc}"
+                feed_url = f"{archive_url}feed/"
+                with trace_requests() as feed_observations:
+                    try:
+                        topic_items = _fetch_rss(publisher, feed_url, since, document_type="Topic publication")
+                    except Exception as feed_error:
+                        warning = f"{archive_warning}；官方主題 RSS 讀取失敗：{feed_error}"
+                        warnings.append(warning)
+                        failed_sources.append(f"{label} topic archive")
+                        source_health.append(
+                            _source_health(
+                                f"{label} topic archive", False, False, [], monotonic() - started_at,
+                                warning, since=since, endpoints=endpoints + tuple(feed_observations),
+                            )
+                        )
+                        print(f"[warn] {warning}")
+                        continue
+                warning = f"{archive_warning}；改用官方主題 RSS"
                 warnings.append(warning)
-                failed_sources.append(f"{label} topic archive")
-                source_health.append(
-                    _source_health(
-                        f"{label} topic archive",
-                        False,
-                        False,
-                        [],
-                        monotonic() - started_at,
-                        warning,
-                        since=since,
-                        endpoints=endpoints,
-                    )
-                )
                 print(f"[warn] {warning}")
-                continue
+                endpoints += tuple(feed_observations)
+            else:
+                warning = ""
             print(f"[info] {label} 主題頁：{len(topic_items)} 筆")
             successful_sources.append(f"{label} topic archive")
             source_health.append(
@@ -277,6 +283,7 @@ def _extend_with_topic_archives(
                     True,
                     topic_items,
                     monotonic() - started_at,
+                    warning,
                     since=since,
                     endpoints=endpoints,
                 )
@@ -325,6 +332,7 @@ def _fetch_rss(
     feed_url: str,
     since: datetime,
     max_pages: int = 20,
+    document_type: str = "Research Briefing",
 ) -> list[ParliamentBriefing]:
     items: list[ParliamentBriefing] = []
     for page in range(1, max_pages + 1):
@@ -356,6 +364,7 @@ def _fetch_rss(
                     webpage_url=webpage_url,
                     pdf_url=pdf_url,
                     topics=_rss_topics(entry),
+                    document_type=document_type,
                     fetched_from=f"Official RSS: {feed_url}",
                 )
             )

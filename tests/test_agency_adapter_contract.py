@@ -194,6 +194,21 @@ def test_google_news_fallback_filters_unrelated_election_titles(monkeypatch):
     assert items[0].title == "Election digital services update"
 
 
+def test_ico_google_news_fallback_requires_official_publisher(monkeypatch):
+    agency = _agency("ICO", homepage="https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/")
+    scraper = registry.AgencyFeedScraper(agency)
+    entries = [
+        _entry("ICO data protection announcement - ICO", "https://news.google.com/rss/articles/ico"),
+        _entry("Spoofed data protection announcement - ICO", "https://news.google.com/rss/articles/spoof"),
+    ]
+    entries[0].source = {"href": "https://ico.org.uk"}
+    entries[1].source = {"href": "https://ico.org.uk.evil.example"}
+    monkeypatch.setattr(registry, "parse_feed", lambda _url: SimpleNamespace(entries=entries))
+    items = scraper._fetch_google_news_fallback(SINCE)
+    assert [item.title for item in items] == ["ICO data protection announcement"]
+    assert any("發布者不符" in warning for warning in scraper.source_warnings)
+
+
 def test_generic_page_read_error_isolated_from_healthy_official_page(monkeypatch):
     scraper = registry.AgencyFeedScraper(
         _agency(

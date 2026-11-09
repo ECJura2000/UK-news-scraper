@@ -15,6 +15,7 @@ if __package__ in (None, ""):
 from UK_news_scraper.article_links import is_agency_homepage
 from UK_news_scraper.config import AGENCIES, DEFAULT_FETCH_BUDGET_SECONDS
 from UK_news_scraper.http.async_client import request_deadline
+from UK_news_scraper.models import SourceHealth
 from UK_news_scraper.profiles import default_profile
 from UK_news_scraper.scrapers.ministry.registry import fetch_all_with_status
 from UK_news_scraper.scrapers.parliament import fetch_parliament_briefings
@@ -55,6 +56,24 @@ def valid_agency_link(item, agency) -> bool:
     return bool(host) and any(domain and (host == domain or host.endswith("." + domain)) for domain in domains)
 
 
+def retryable_google_news_failure(issues: list[dict[str, str]], health: list[SourceHealth]) -> bool:
+    if not issues or any(issue["kind"] != "fetch_failed" for issue in issues):
+        return False
+    for source in health:
+        if source.success:
+            continue
+        statuses = [
+            endpoint.status_code
+            for endpoint in source.endpoints
+            if endpoint.url == "https://news.google.com/rss/search"
+        ]
+        if source.candidate_count or not statuses or any(
+            status not in {0, 429, 500, 502, 503, 504} for status in statuses
+        ):
+            return False
+    return True
+
+
 def inspect_results(agency_result, parliament_result, since, until) -> dict:
     issues = []
     health = list(agency_result.source_health) + list(parliament_result.source_health)
@@ -87,6 +106,7 @@ def inspect_results(agency_result, parliament_result, since, until) -> dict:
         "period_start": since.isoformat(),
         "period_end_exclusive": until.isoformat(),
         "ok": not issues,
+        "retryable_google_news_failure": retryable_google_news_failure(issues, health),
         "issues": issues,
         "source_health": [asdict(source) for source in health],
         "agency_count": len(agency_result.items),

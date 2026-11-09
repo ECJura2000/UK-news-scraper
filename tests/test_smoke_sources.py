@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import feedparser
 
 from scripts.smoke_sources import SOURCES, WEEKLY_AGENCIES, inspect_results
-from UK_news_scraper.models import SourceHealth
+from UK_news_scraper.models import EndpointObservation, SourceHealth
 from UK_news_scraper.scrapers.ministry.registry import AgencyFeedScraper
 from UK_news_scraper.scrapers.parliament.research_briefings import _fetch_rss
 
@@ -73,3 +73,25 @@ def test_one_failure_does_not_hide_successful_sources():
     assert not report["ok"]
     assert len(report["source_health"]) == 2
     assert report["issues"] == [dict(source="CMA", kind="fetch_failed", message="timeout")]
+    assert not report["retryable_google_news_failure"]
+
+
+def test_retry_requires_only_transient_google_news_transport_failures():
+    google_news = EndpointObservation("https://news.google.com/rss/search", 503, "")
+    no_response = replace(google_news, status_code=0)
+    failed = SourceHealth("Ofcom", True, False, 0, 1, endpoints=(google_news, no_response))
+    healthy = SourceHealth("ICO", True, True, 0, 1)
+
+    report = inspect_results(results(health=[failed, healthy]), results(), SINCE, UNTIL)
+    assert report["retryable_google_news_failure"]
+    assert not report["ok"]
+
+    for other_issue in (
+        replace(healthy, success=False),
+        replace(healthy, candidate_count=1),
+        replace(failed, candidate_count=1),
+        replace(failed, endpoints=(replace(google_news, status_code=403),)),
+        replace(failed, endpoints=(google_news, replace(google_news, status_code=200))),
+    ):
+        report = inspect_results(results(health=[failed, other_issue]), results(), SINCE, UNTIL)
+        assert not report["retryable_google_news_failure"]

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.8 - 2026-11-23
+
+- Preserve successful Google News fallback results when another query fails and report partial failures in Python and Rust.
+- Add official Parliament topic RSS and ICO fallbacks, report source coverage gaps, and retry transient Google News failures on a fresh GitHub runner.
+- Correct NCSC review-date and out-of-scope candidate warnings and update the locked CA bundle and Soup Sieve security dependencies. Python requires 3.11.5 or later.
+
 ## 2.3.7 - 2026-10-12
 
 - Calibrate application time against the five National Standard Time NTP servers over UDP 123, with bounded queries, validated responses, a monotonic anchor, and explicit system-clock fallback. Preserve original article dates and monotonic fetch/performance deadlines.

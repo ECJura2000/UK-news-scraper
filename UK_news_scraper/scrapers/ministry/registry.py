@@ -511,8 +511,19 @@ class AgencyFeedScraper(SourceHtmlAdapter, Scraper):
     def _fetch_google_news_fallback(self, since: datetime) -> list[NewsItem]:
         query_texts = self._google_news_query_texts()
         items: list[NewsItem] = []
+        errors: list[Exception] = []
         for query_text in query_texts:
-            items.extend(self._fetch_google_news_query(query_text, since))
+            try:
+                items.extend(self._fetch_google_news_query(query_text, since))
+            except Exception as exc:
+                errors.append(exc)
+        if errors:
+            if not items:
+                raise errors[0]
+            self.source_warnings.append(
+                f"{self.agency.short_name} Google News 備援有 {len(errors)}/{len(query_texts)} 組查詢失敗，"
+                "已保留取得的資料"
+            )
         print(
             f"[info] {self.agency.short_name} 改用 Google News RSS 備援（{len(query_texts)} 組查詢）：{len(items)} 筆"
         )

@@ -6,6 +6,7 @@ pub(super) async fn google_news_fallback(
     since: DateTime<Utc>,
     until: DateTime<Utc>,
     observations: &mut Vec<EndpointObservation>,
+    warnings: &mut Vec<String>,
 ) -> Result<Vec<NewsItem>, String> {
     let queries: &[&str] = match agency.short_name.as_str() {
         "Ofcom" => &[
@@ -22,6 +23,7 @@ pub(super) async fn google_news_fallback(
         _ => &[],
     };
     let mut items = vec![];
+    let mut errors = Vec::new();
     let ofcom_suffix = Regex::new(r"\s+-\s+(?:Ofcom\s+-\s+)?www\.ofcom\.org\.uk$").unwrap();
     let npsa_suffix =
         Regex::new(r"(?i)\s+-\s+National Protective Security Authority(?:\s+\|\s+NPSA)?$").unwrap();
@@ -40,10 +42,20 @@ pub(super) async fn google_news_fallback(
             .collect::<String>();
         let source =
             format!("https://news.google.com/rss/search?q={encoded}&hl=en-GB&gl=GB&ceid=GB:en");
-        let bytes = transport
+        let result = transport
             .bytes(transport.get(&source), observations)
-            .await?;
-        let feed = parser::parse(&bytes[..]).map_err(|e| e.to_string())?;
+            .await
+            .and_then(|bytes| {
+                let feed = parser::parse(&bytes[..]).map_err(|error| error.to_string())?;
+                Ok((feed, bytes))
+            });
+        let (feed, bytes) = match result {
+            Ok(response) => response,
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
+        };
         // feed-rs does not retain RSS <source url>; preserve it for publisher checks.
         let publishers = rss_publishers(&bytes);
         let expected_host = match agency.short_name.as_str() {
@@ -140,6 +152,17 @@ pub(super) async fn google_news_fallback(
                 content_type: ContentType::News,
             });
         }
+    }
+    if !errors.is_empty() {
+        if items.is_empty() {
+            return Err(errors.remove(0));
+        }
+        warnings.push(format!(
+            "{} Google News 備援有 {}/{} 組查詢失敗，已保留取得的資料",
+            agency.short_name,
+            errors.len(),
+            queries.len()
+        ));
     }
     Ok(crate::parse::dedupe(items))
 }

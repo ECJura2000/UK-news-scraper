@@ -34,6 +34,26 @@ def test_zero_without_candidates_is_valid_but_unparsed_candidates_fail():
     assert not inspect_results(results(), results(), SINCE, UNTIL)["ok"]
 
 
+def test_empty_google_news_fallback_after_official_failure_warns_about_coverage():
+    official = EndpointObservation("https://www.electoralcommission.org.uk/news-and-views/media-centre", 403, "")
+    fallback = EndpointObservation("https://news.google.com/rss/search", 200, "")
+    source = SourceHealth("Electoral Commission", True, True, 0, 1, endpoints=(official, fallback))
+
+    report = inspect_results(results(health=[source]), results(), SINCE, UNTIL)
+    assert report["ok"]
+    assert report["coverage_warnings"] == [
+        {"source": source.source, "kind": "empty_fallback_after_official_failure"}
+    ]
+
+    for healthy in (
+        replace(source, item_count=1),
+        replace(source, endpoints=(replace(official, status_code=200), fallback)),
+        replace(source, endpoints=(official, replace(fallback, status_code=503))),
+    ):
+        report = inspect_results(results(health=[healthy]), results(), SINCE, UNTIL)
+        assert report["coverage_warnings"] == []
+
+
 def test_production_agency_parser_replay_and_attribution(monkeypatch):
     agency = WEEKLY_AGENCIES[0]
     agency = replace(agency, official_pages=(), news_pages=())

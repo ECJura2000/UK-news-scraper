@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,7 @@ from UK_news_scraper.scrapers.ministry.registry import fetch_all_with_status
 from UK_news_scraper.scrapers.parliament import fetch_parliament_briefings
 
 WEEKLY_AGENCIES = tuple(agency for agency in AGENCIES if agency.short_name in default_profile().selected_sources)
+GOOGLE_NEWS_ENDPOINT = "https://news.google.com/rss/search"
 
 # Retained for integrations that import the old endpoint inventory.
 SOURCES = {agency.short_name: agency.homepage for agency in WEEKLY_AGENCIES}
@@ -65,13 +67,29 @@ def retryable_google_news_failure(issues: list[dict[str, str]], health: list[Sou
         statuses = [
             endpoint.status_code
             for endpoint in source.endpoints
-            if endpoint.url == "https://news.google.com/rss/search"
+            if endpoint.url == GOOGLE_NEWS_ENDPOINT
         ]
         if source.candidate_count or not statuses or any(
             status not in {0, 429, 500, 502, 503, 504} for status in statuses
         ):
             return False
     return True
+
+
+def empty_fallback_after_official_failure(source: SourceHealth) -> bool:
+    official_statuses = [
+        endpoint.status_code for endpoint in source.endpoints if endpoint.url != GOOGLE_NEWS_ENDPOINT
+    ]
+    return (
+        source.success
+        and source.item_count == 0
+        and bool(official_statuses)
+        and all(status == 0 or status >= 400 for status in official_statuses)
+        and any(
+            endpoint.url == GOOGLE_NEWS_ENDPOINT and 200 <= endpoint.status_code < 300
+            for endpoint in source.endpoints
+        )
+    )
 
 
 def inspect_results(agency_result, parliament_result, since, until) -> dict:
@@ -108,6 +126,11 @@ def inspect_results(agency_result, parliament_result, since, until) -> dict:
         "ok": not issues,
         "retryable_google_news_failure": retryable_google_news_failure(issues, health),
         "issues": issues,
+        "coverage_warnings": [
+            {"source": source.source, "kind": "empty_fallback_after_official_failure"}
+            for source in health
+            if empty_fallback_after_official_failure(source)
+        ],
         "source_health": [asdict(source) for source in health],
         "agency_count": len(agency_result.items),
         "parliament_count": len(parliament_result.items),
@@ -134,6 +157,15 @@ def main() -> int:
         args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for issue in result["issues"]:
         print(f"::warning::{issue['source']}: {issue['kind']}")
+    coverage_notes = [
+        f"{warning['source']}：官網端點未成功，Google News 備援取得 0 筆合格資料，無法確認期間涵蓋。"
+        for warning in result["coverage_warnings"]
+    ]
+    for note in coverage_notes:
+        print(f"::warning::{note}")
+    if coverage_notes and (summary_path := os.environ.get("GITHUB_STEP_SUMMARY")):
+        with Path(summary_path).open("a", encoding="utf-8") as summary:
+            summary.write("### 來源涵蓋警告\n\n" + "".join(f"- {note}\n" for note in coverage_notes))
     print(f"production source check: {len(result['source_health'])} routes; ok={result['ok']}")
     return 0 if result["ok"] else 1
 

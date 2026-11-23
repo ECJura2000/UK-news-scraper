@@ -79,7 +79,7 @@ UK_NEWS_OUTPUT_DIR=/absolute/output/path python3 -m UK_news_scraper
 `UK_NEWS_TRANSLATION_CONCURRENCY` 調整併發數。
 翻譯功能透過 `googletrans`／`deep-translator` 所連接的外部翻譯服務處理文字；不應傳送機密、個人或未公開內容。
 
-第一次執行前請先安裝套件：
+Python 版需要 Python 3.11.5 以上版本。第一次執行前請先安裝套件：
 
 ```bash
 python3 -m pip install -r requirement.txt

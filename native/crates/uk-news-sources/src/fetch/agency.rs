@@ -212,7 +212,7 @@ pub async fn fetch_agencies_with_progress(
                         "Ofcom" | "NPSA" | "Electoral Commission" | "ICO"
                     )
                 {
-                    match google_news_fallback(&transport, &agency, since, until, &mut observations)
+                    match google_news_fallback(&transport, &agency, since, until, &mut observations, &mut warnings)
                         .await
                     {
                         Ok(mut fallback) => {

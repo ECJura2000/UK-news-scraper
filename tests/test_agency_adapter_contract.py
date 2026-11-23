@@ -181,6 +181,26 @@ def test_official_metadata_skips_invalid_json_and_uses_description():
     assert registry._content_type_for_link("https://official.example/publication/one") == "publication"
 
 
+@pytest.mark.parametrize("working_query", [0, 3, None])
+def test_google_news_fallback_retains_results_across_query_failures(monkeypatch, working_query):
+    scraper = registry.AgencyFeedScraper(_agency("Ofcom"))
+    queries = scraper._google_news_query_texts()
+    found = _item("Ofcom")
+
+    def fetch(query, since):
+        if working_query is not None and query == queries[working_query]:
+            return [found]
+        raise DownloadError("Google News 503")
+
+    monkeypatch.setattr(scraper, "_fetch_google_news_query", fetch)
+    if working_query is None:
+        with pytest.raises(DownloadError, match="503"):
+            scraper._fetch_google_news_fallback(SINCE)
+    else:
+        assert scraper._fetch_google_news_fallback(SINCE) == [found]
+        assert any("5/6 組查詢失敗" in warning for warning in scraper.source_warnings)
+
+
 def test_google_news_fallback_filters_unrelated_election_titles(monkeypatch):
     scraper = registry.AgencyFeedScraper(_agency("Electoral Commission"))
     entries = [

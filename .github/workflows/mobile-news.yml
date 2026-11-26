@@ -1,0 +1,89 @@
+name: 手機手動抓取新聞
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: '起日 YYYY-MM-DD（與迄日一起填；留白用預設期間）'
+        required: false
+        type: string
+      end_date:
+        description: '迄日 YYYY-MM-DD（包含當日）'
+        required: false
+        type: string
+      days:
+        description: '日期留白時回推天數 1–366（另含今日）'
+        default: '7'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-news-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      TZ: Asia/Taipei
+      START_DATE: ${{ inputs.start_date }}
+      END_DATE: ${{ inputs.end_date }}
+      DAYS: ${{ inputs.days }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Verify cloud delivery contracts
+        run: node --test scripts/cloud-delivery.test.mjs
+      - name: Validate dates before network collection
+        run: node scripts/cloud-delivery.mjs validate-inputs
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirement-lock.txt
+      - name: Install Python runtime
+        run: |
+          python -m pip install -r requirement-lock.txt
+          python -m UK_news_scraper --check-runtime
+      - name: Collect UK news
+        shell: bash
+        run: |
+          mkdir -p output
+          args=(--workers 6 --output "$PWD/output/UK新聞查詢.xlsx")
+          if [[ -n "$START_DATE" ]]; then
+            args+=(--since "$START_DATE" --until "$END_DATE")
+          else
+            args+=(--days "$DAYS")
+          fi
+          set -o pipefail
+          python -m UK_news_scraper "${args[@]}" 2>&1 | tee output/collection.log
+      - name: Verify and stage completed reports
+        id: stage
+        run: node scripts/cloud-delivery.mjs uk output cloud-publish
+      - name: Keep reports and diagnostics as GitHub Artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: news-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            output/
+            cloud-publish/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Install Drive uploader
+        if: ${{ success() && steps.stage.outcome == 'success' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rclone
+      - name: Upload verified reports to Google Drive
+        if: ${{ success() && steps.stage.outcome == 'success' }}
+        env:
+          RCLONE_CONFIG_TEXT: ${{ secrets.RCLONE_CONFIG }}
+          DRIVE_FOLDER_ID: ${{ vars.DRIVE_FOLDER_ID }}
+        run: bash scripts/upload-cloud-drive.sh

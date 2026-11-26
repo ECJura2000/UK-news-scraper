@@ -20,3 +20,7 @@ target/
 native/apps/desktop/node_modules/
 native/apps/desktop/dist/
 native/apps/desktop/src-tauri/gen/
+
+/cloud-publish/
+
+/rclone.conf

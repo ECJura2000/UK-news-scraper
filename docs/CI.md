@@ -1,0 +1,5 @@
+# CI change routing
+
+Existing PR, push, job and matrix check names are retained. Documentation-only changes run a Git diff whitespace/conflict check (Markdown hard breaks allowed) and retain the existing dependency audit; costly tests, native compilation, benchmarks and executable packaging are omitted. Changes limited to Python test modules and conftest run the complete existing Python test/lint/type/coverage checks and dependency audit without recompiling unchanged native or desktop code. Runtime changes (including Python runtime, Rust, React, source catalog, fixtures, dependencies and unknown paths), manual invocations, tags and unavailable diffs retain all existing checks.
+
+The scheduled source smoke, release publication condition, target-platform runtime smoke, release size gates, checksums and audit thresholds are unchanged. A docs-only or test-only PR does not produce new release artifacts. Tagged releases always run the original full validation and package workflow. No required check names or branch protection settings were changed.

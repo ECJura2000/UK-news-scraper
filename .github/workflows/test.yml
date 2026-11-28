@@ -3,12 +3,25 @@ name: test
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: scope
+        shell: bash
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BEFORE: ${{ github.event.before }}
+        run: |
+          bash .github/ci-scope.sh --self-test
+          bash .github/ci-scope.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -19,10 +32,15 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirement-lock.txt -r requirement-dev.txt
       - run: sudo apt-get update && sudo apt-get install -y xvfb xauth
+        if: steps.scope.outputs.mode != 'docs'
       - run: xvfb-run -a python -m pytest -q --cov=UK_news_scraper --cov-fail-under=92
+        if: steps.scope.outputs.mode != 'docs'
       - run: python -m compileall -q UK_news_scraper tests
+        if: steps.scope.outputs.mode != 'docs'
       - run: python -m ruff check .
+        if: steps.scope.outputs.mode != 'docs'
       - run: python -m mypy UK_news_scraper
+        if: steps.scope.outputs.mode != 'docs'
       # deep-translator has no fixed release for PYSEC-2022-252; keep all other findings blocking.
       - name: Audit locked dependencies
         run: python -m pip_audit -r requirement-lock.txt --ignore-vuln PYSEC-2022-252 --format json --output pip-audit.json
@@ -43,15 +61,32 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: scope
+        shell: bash
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BEFORE: ${{ github.event.before }}
+        run: |
+          bash .github/ci-scope.sh --self-test
+          bash .github/ci-scope.sh
       - uses: actions/setup-python@v6
+        if: steps.scope.outputs.mode == 'full'
         with:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: requirement-build.txt
       - run: python -m pip install --upgrade pip
+        if: steps.scope.outputs.mode == 'full'
       - run: python -m pip install -r requirement-build.txt
+        if: steps.scope.outputs.mode == 'full'
       - run: python -m PyInstaller --clean --noconfirm --onefile --collect-data tzdata --collect-data UK_news_scraper --name UKNewsScraper run_scraper.py
+        if: steps.scope.outputs.mode == 'full'
       - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.mode == 'full'
         with:
           name: UKNewsScraper-${{ runner.os }}
           path: dist/*
@@ -64,35 +99,71 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: scope
+        shell: bash
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BEFORE: ${{ github.event.before }}
+        run: |
+          bash .github/ci-scope.sh --self-test
+          bash .github/ci-scope.sh
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.scope.outputs.mode == 'full'
       - uses: Swatinem/rust-cache@v2
+        if: steps.scope.outputs.mode == 'full'
       - uses: actions/setup-node@v6
+        if: steps.scope.outputs.mode == 'full'
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: native/apps/desktop/package-lock.json
       - name: Install Linux Tauri dependencies
-        if: runner.os == 'Linux'
+        if: steps.scope.outputs.mode == 'full' && (runner.os == 'Linux')
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
+        if: steps.scope.outputs.mode == 'full'
         working-directory: native/apps/desktop
       - run: npm test
+        if: steps.scope.outputs.mode == 'full'
         working-directory: native/apps/desktop
       - run: npm run build
+        if: steps.scope.outputs.mode == 'full'
         working-directory: native/apps/desktop
       - run: cargo test --workspace --locked
+        if: steps.scope.outputs.mode == 'full'
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        if: steps.scope.outputs.mode == 'full'
 
   benchmark:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: scope
+        shell: bash
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BEFORE: ${{ github.event.before }}
+        run: |
+          bash .github/ci-scope.sh --self-test
+          bash .github/ci-scope.sh
       - uses: actions/setup-python@v6
+        if: steps.scope.outputs.mode == 'full'
         with:
           python-version: "3.13"
       - run: python scripts/benchmark_capacity.py --sizes 1000 10000 --workers 1 4 6 > benchmark-results.json
+        if: steps.scope.outputs.mode == 'full'
       - run: python scripts/check_benchmark_budget.py benchmark-results.json benchmarks/baseline.json
+        if: steps.scope.outputs.mode == 'full'
       - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.mode == 'full'
         with:
           name: uk-news-benchmark-results
           path: benchmark-results.json

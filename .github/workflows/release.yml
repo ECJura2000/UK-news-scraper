@@ -21,9 +21,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: scope
+        shell: bash
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BEFORE: ${{ github.event.before }}
+        run: |
+          bash .github/ci-scope.sh --self-test
+          bash .github/ci-scope.sh
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.scope.outputs.mode == 'full'
       - uses: Swatinem/rust-cache@v2
+        if: steps.scope.outputs.mode == 'full'
       - uses: actions/setup-python@v6
+        if: steps.scope.outputs.mode == 'full'
         with:
           python-version: "3.13"
           cache: pip
@@ -31,17 +46,21 @@ jobs:
             requirement-lock.txt
             requirement-dev.txt
       - uses: actions/setup-node@v6
+        if: steps.scope.outputs.mode == 'full'
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: native/apps/desktop/package-lock.json
       - name: Install Linux Tauri dependencies
+        if: steps.scope.outputs.mode == 'full'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb xauth
       - name: Install validation dependencies
+        if: steps.scope.outputs.mode == 'full'
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirement-lock.txt -r requirement-dev.txt
       - name: Verify tag and source
+        if: steps.scope.outputs.mode == 'full'
         shell: bash
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v2* ]]; then
@@ -56,6 +75,7 @@ jobs:
           cargo test --workspace --locked
           cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Validate desktop frontend
+        if: steps.scope.outputs.mode == 'full'
         working-directory: native/apps/desktop
         run: npm ci && npm test && npm run build
 
@@ -80,25 +100,44 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: scope
+        shell: bash
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BEFORE: ${{ github.event.before }}
+        run: |
+          bash .github/ci-scope.sh --self-test
+          bash .github/ci-scope.sh
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.scope.outputs.mode == 'full'
       - uses: Swatinem/rust-cache@v2
+        if: steps.scope.outputs.mode == 'full'
       - uses: actions/setup-node@v6
+        if: steps.scope.outputs.mode == 'full'
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: native/apps/desktop/package-lock.json
       - uses: actions/setup-python@v6
+        if: steps.scope.outputs.mode == 'full'
         with:
           python-version: "3.13"
       - name: Install Linux Tauri dependencies
-        if: runner.os == 'Linux'
+        if: steps.scope.outputs.mode == 'full' && (runner.os == 'Linux')
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Build React frontend
+        if: steps.scope.outputs.mode == 'full'
         working-directory: native/apps/desktop
         run: npm ci && npm run build
       - name: Build native Rust executable
+        if: steps.scope.outputs.mode == 'full'
         run: cargo build --release --locked -p uk-news-scraper
       - name: Stage native executable
+        if: steps.scope.outputs.mode == 'full'
         shell: bash
         run: |
           mkdir -p dist
@@ -109,13 +148,13 @@ jobs:
             chmod +x dist/UKNewsScraper
           fi
       - name: Smoke-test Linux or macOS executables
-        if: runner.os != 'Windows'
+        if: steps.scope.outputs.mode == 'full' && (runner.os != 'Windows')
         shell: bash
         run: |
           ./dist/UKNewsScraper --check-runtime > dist/smoke-standard.txt
           test -s dist/smoke-standard.txt
       - name: Smoke-test Windows executables
-        if: runner.os == 'Windows'
+        if: steps.scope.outputs.mode == 'full' && (runner.os == 'Windows')
         shell: pwsh
         run: |
           $tests = @(@{ Name = "standard"; Executable = ".\dist\UKNewsScraper.exe" })
@@ -140,7 +179,7 @@ jobs:
             }
           }
       - name: Upload Windows smoke diagnostics
-        if: failure() && runner.os == 'Windows'
+        if: steps.scope.outputs.mode == 'full' && (failure() && runner.os == 'Windows')
         uses: actions/upload-artifact@v7
         with:
           name: UKNewsScraper-Windows-diagnostics
@@ -151,8 +190,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
       - name: Create portable archive
+        if: steps.scope.outputs.mode == 'full'
         run: python scripts/package_release.py ${{ matrix.platform }}
       - name: Enforce platform asset size budget
+        if: steps.scope.outputs.mode == 'full'
         shell: bash
         run: >-
           python scripts/check_release_size.py
@@ -161,6 +202,7 @@ jobs:
           --max-total-mib 35
           --manifest dist/release/${{ matrix.artifact }}-SIZE-MANIFEST.txt
       - name: Build desktop installer on target operating system
+        if: steps.scope.outputs.mode == 'full'
         shell: bash
         working-directory: native/apps/desktop
         run: |
@@ -170,6 +212,7 @@ jobs:
             Windows) npm exec tauri build -- --features desktop-default --bundles nsis --ci ;;
           esac
       - name: Smoke-test desktop executable
+        if: steps.scope.outputs.mode == 'full'
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -179,6 +222,7 @@ jobs:
           fi
           test -s dist/smoke-desktop.txt
       - name: Stage desktop installer
+        if: steps.scope.outputs.mode == 'full'
         shell: bash
         run: |
           version="$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
@@ -198,6 +242,7 @@ jobs:
             cp "$deb" "dist/release/UKNewsScraper-${version}-Linux-x86_64.deb"
           fi
       - name: Enforce desktop installer size budget
+        if: steps.scope.outputs.mode == 'full'
         shell: bash
         run: >-
           python scripts/check_release_size.py
@@ -206,6 +251,7 @@ jobs:
           --max-total-mib 140
           --manifest dist/release/${{ matrix.artifact }}-SIZE-MANIFEST.txt
       - uses: actions/upload-artifact@v7
+        if: steps.scope.outputs.mode == 'full'
         with:
           name: ${{ matrix.artifact }}
           path: |
